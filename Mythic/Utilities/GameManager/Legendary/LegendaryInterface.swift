@@ -709,7 +709,7 @@ final class Legendary {
 
         let metadataDirectory: URL = configurationFolder.appending(path: "metadata")
 
-        return try {
+        let games: [EpicGamesGame] = try {
             try FileManager.default.contentsOfDirectory(atPath: metadataDirectory.path).map { fileName -> EpicGamesGame in
                 let data = try Data(contentsOf: metadataDirectory.appending(path: fileName))
                 let metadata = try JSONDecoder().decode(GameMetadata.self, from: data)
@@ -721,6 +721,17 @@ final class Legendary {
                 return game
             }
         }()
+
+        // MARK: - DEBUG: diagnose missing games
+        log.debug("[DIAG] getInstallableGames: parsed \(games.count) games from \(metadataDirectory.path)")
+        let luto = games.filter { $0.title.lowercased().contains("luto") || $0.title.lowercased().contains("foretales") }
+        log.debug("[DIAG] Luto/Foretales in installables: \(luto.map { "\($0.id) \($0.title)" })")
+        // swiftlint:disable:next force_try
+        let allIDs = games.map { $0.id }.joined(separator: ",")
+        log.debug("[DIAG] all installable IDs: \(allIDs)")
+        // swiftlint:enable:previous force_try
+
+        return games
     }
 
     static func getGameMetadata(gameID: String) throws -> GameMetadata {

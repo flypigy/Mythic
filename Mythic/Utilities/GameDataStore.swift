@@ -75,12 +75,14 @@ import OSLog
             do {
                 let installables = try Legendary.getInstallableGames()
                 let installed = try Legendary.getInstalledGames()
-                
+
+                log.debug("[DIAG] refreshFromStorefronts: installables=\(installables.count) installed=\(installed.count) libraryBefore=\(library.count)")
+
                 // add installables that aren't installed
                 for game in installables where !installed.contains(where: { $0 == game }) {
                     library.update(with: game)
                 }
-                
+
                 // installed: merge instead of overwrite
                 for fetchedGame in installed {
                     if let existing = library.first(where: { $0 == fetchedGame }) {
@@ -90,6 +92,10 @@ import OSLog
                         library.update(with: fetchedGame)
                     }
                 }
+
+                log.debug("[DIAG] refreshFromStorefronts: libraryAfter=\(library.count)")
+                let stillMissing = installables.filter { ig in !library.contains(where: { $0.id == ig.id }) }
+                log.debug("[DIAG] installables NOT in library after refresh: \(stillMissing.count) — \(stillMissing.map { "\($0.id) \($0.title)" })")
             } catch {
                 log.error("Unable to refresh game data from Epic Games: \(error.localizedDescription)")
                 throw error
