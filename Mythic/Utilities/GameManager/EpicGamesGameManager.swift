@@ -58,7 +58,7 @@ extension EpicGamesGameManager: StorefrontGameManager {
         guard case .epicGames = game.storefront,
               let castGame = game as? EpicGamesGame else { throw CocoaError(.coderInvalidValue) }
 
-        return try await launch(game: castGame)
+        return try await Task(operation: { try await launch(game: castGame) }).value
     }
 
     @MainActor static func move(game: Game,
@@ -66,7 +66,7 @@ extension EpicGamesGameManager: StorefrontGameManager {
         guard case .epicGames = game.storefront,
               let castGame = game as? EpicGamesGame else { throw CocoaError(.coderInvalidValue) }
 
-        return try await move(game: castGame, to: location)
+        return try await Task(operation: { try await move(game: castGame, to: location) }).value
     }
 
     @MainActor static func uninstall(game: Game,
@@ -113,20 +113,20 @@ final class EpicGamesGameManager {
     }
 
     @discardableResult
-    @MainActor static func launch(game: EpicGamesGame) async throws -> GameOperation {
+    static func launch(game: EpicGamesGame) async throws -> GameOperation {
         return try await Legendary.launch(game: game)
     }
 
     @discardableResult
-    @MainActor static func move(game: EpicGamesGame,
-                                to newLocation: URL) async throws -> GameOperation {
+    static func move(game: EpicGamesGame,
+                     to newLocation: URL) async throws -> GameOperation {
         return try await Legendary.move(game: game, to: newLocation)
     }
 
     @discardableResult
-    @MainActor static func uninstall(game: EpicGamesGame,
-                                     persistFiles: Bool,
-                                     runUninstallerIfPossible: Bool = true) async throws -> GameOperation {
+    static func uninstall(game: EpicGamesGame,
+                          persistFiles: Bool,
+                          runUninstallerIfPossible: Bool = true) async throws -> GameOperation {
         return try await Legendary.uninstall(game: game,
                                       persistFiles: persistFiles,
                                       runUninstallerIfPossible: runUninstallerIfPossible)
