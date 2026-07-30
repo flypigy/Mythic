@@ -33,10 +33,36 @@ jobs:
         key: xcode-cache-deriveddata-${{ github.workflow }}-${{ github.sha }}
         restore-keys: xcode-cache-deriveddata-${{ github.workflow }}-
 
-    - run: |
+    - name: Build
+      run: |
         xcodebuild -scheme Mythic \
+          -configuration Debug \
+          -derivedDataPath build \
           CODE_SIGNING_ALLOWED=NO \
           SWIFTLINT=NO \
           -parallel-testing-enabled YES \
           -jobs $(sysctl -n hw.ncpu) \
-          -verbose
+          build
+
+    - name: Ad-hoc sign and package .app
+      run: |
+        set -euo pipefail
+        APP="build/Build/Products/Debug/Mythic.app"
+
+        # Ad-hoc sign so the app launches locally without a developer certificate.
+        # (First launch still needs a right-click → Open to bypass Gatekeeper.)
+        codesign --force --deep --sign - "$APP"
+
+        # Keep the bundled legendary CLI executable.
+        chmod +x "$APP/Contents/Resources/legendary/cli" 2>/dev/null || true
+
+        # Zip it up for download.
+        cd build/Build/Products/Debug
+        ditto -c -k --keepParent Mythic.app Mythic.app.zip
+
+    - name: Upload .app artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Mythic-app
+        path: build/Build/Products/Debug/Mythic.app.zip
+        retention-days: 30
