@@ -8,6 +8,8 @@ on:
   pull_request:
     paths: *workflow_paths
   workflow_dispatch:
+# Triggered on pushes touching the project sources. No-code change to verify
+# push-based CI triggering after enabling Actions on this fork.
 
 # cancel previous runs w/ same ref, save CI minutes
 concurrency:
