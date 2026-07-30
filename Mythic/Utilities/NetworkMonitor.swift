@@ -110,7 +110,7 @@ final class NetworkMonitor: ObservableObject, @unchecked Sendable {
         let request = URLRequest(
             url: url,
             cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
-            timeoutInterval: epicProbeTimeout
+            timeoutInterval: Self.epicProbeTimeout
         )
 
         do {
