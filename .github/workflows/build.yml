@@ -8,8 +8,6 @@ on:
   pull_request:
     paths: *workflow_paths
   workflow_dispatch:
-# Triggered on pushes touching the project sources. No-code change to verify
-# push-based CI triggering after enabling Actions on this fork.
 
 # cancel previous runs w/ same ref, save CI minutes
 concurrency:
@@ -22,11 +20,19 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
+    # Pin Xcode to a version the project is known to compile cleanly with.
+    # The runner's default (newer Xcode, e.g. 26.5) tightens Swift 6 strict-concurrency
+    # checks and turns pre-existing `sending ... data races` cases into errors, failing
+    # the build. 26.4.1 matches the upstream's last green build.
+    - uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: '26.4.1'
+
     - uses: irgaly/xcode-cache@v1
       with:
         key: xcode-cache-deriveddata-${{ github.workflow }}-${{ github.sha }}
         restore-keys: xcode-cache-deriveddata-${{ github.workflow }}-
-        
+
     - run: |
         xcodebuild -scheme Mythic \
           CODE_SIGNING_ALLOWED=NO \
