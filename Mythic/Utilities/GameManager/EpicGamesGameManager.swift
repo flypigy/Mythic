@@ -113,20 +113,20 @@ final class EpicGamesGameManager {
     }
 
     @discardableResult
-    static func launch(game: EpicGamesGame) async throws -> GameOperation {
+    @MainActor static func launch(game: EpicGamesGame) async throws -> GameOperation {
         return try await Legendary.launch(game: game)
     }
 
     @discardableResult
-    static func move(game: EpicGamesGame,
-                     to newLocation: URL) async throws -> GameOperation {
+    @MainActor static func move(game: EpicGamesGame,
+                                to newLocation: URL) async throws -> GameOperation {
         return try await Legendary.move(game: game, to: newLocation)
     }
 
     @discardableResult
-    static func uninstall(game: EpicGamesGame,
-                          persistFiles: Bool,
-                          runUninstallerIfPossible: Bool = true) async throws -> GameOperation {
+    @MainActor static func uninstall(game: EpicGamesGame,
+                                     persistFiles: Bool,
+                                     runUninstallerIfPossible: Bool = true) async throws -> GameOperation {
         return try await Legendary.uninstall(game: game,
                                       persistFiles: persistFiles,
                                       runUninstallerIfPossible: runUninstallerIfPossible)
