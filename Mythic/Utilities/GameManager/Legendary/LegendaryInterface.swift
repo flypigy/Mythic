@@ -361,30 +361,25 @@ final class Legendary {
             if persistFiles { arguments.append("--keep-files") }
             if !runUninstallerIfPossible { arguments.append("--skip-uninstaller") }
 
-            // legendary is inconsistent with this,
-            // may have to use FileManager.default.removeItem(atPath:)
+            // Stream the process instead of blocking on readToEnd() so the main thread
+            // stays responsive while legendary runs. executeStreamed already routes stderr
+            // through handleCLIErrorOutput per chunk.
             let process: Process = .init()
             process.arguments = arguments
-            await transformProcess(process)
-            
-            let processStandardErrorPipe: Pipe = .init()
-            process.standardError = processStandardErrorPipe
-            
-            try process.run()
-            
+
             do {
-                try handleCLIErrorOutput(fromStandardErrorPipe: processStandardErrorPipe)
+                try await executeStreamed(process) { _ in nil }
             } catch {
                 // FIXME: dirtyfix for legendary bug resulting in unsuccessful game directory removal
                 if let error = error as? GenericError,
                    error.reason.contains("OSError(66, 'Directory not empty')"),
                    case .installed(let location, _) = game.installationState {
                     try FileManager.default.removeItem(at: location)
+                } else {
+                    throw error
                 }
-                
-                throw error
             }
-            
+
             game.installationState = .uninstalled
         }
 
@@ -413,17 +408,14 @@ final class Legendary {
         let operation: GameOperation = .init(game: game, type: .move) { _ in
             try FileManager.default.moveItem(at: currentLocation, to: newLocation)
 
+            // Stream the process instead of blocking on readToEnd() so the main thread
+            // stays responsive. executeStreamed already routes stderr through
+            // handleCLIErrorOutput per chunk.
             let process: Process = .init()
             process.arguments = ["move", game.id, newLocation.path, "--skip-move"]
-            await transformProcess(process)
-            
-            let processStandardErrorPipe: Pipe = .init()
-            process.standardError = processStandardErrorPipe
-            
-            try process.run()
-            
-            try handleCLIErrorOutput(fromStandardErrorPipe: processStandardErrorPipe)
-            
+
+            try await executeStreamed(process) { _ in nil }
+
             game.installationState = .installed(location: newLocation, platform: platform)
         }
 
@@ -471,17 +463,14 @@ final class Legendary {
         arguments.append(game.id)
 
         arguments.append(enclosingDirectory.path)
-        
+
+        // Stream the process instead of blocking on readToEnd() so the main thread
+        // stays responsive. executeStreamed already routes stderr through
+        // handleCLIErrorOutput per chunk.
         let process: Process = .init()
         process.arguments = arguments
-        await transformProcess(process)
-        
-        let processStandardErrorPipe: Pipe = .init()
-        process.standardError = processStandardErrorPipe
-        
-        try process.run()
-        
-        try handleCLIErrorOutput(fromStandardErrorPipe: processStandardErrorPipe)
+
+        try await executeStreamed(process) { _ in nil }
     }
 
     @discardableResult
