@@ -49,14 +49,7 @@ struct MythicApp: App {
         .environment(
             \.whatsNew,
              WhatsNewEnvironment(
-                versionStore:
-                    {
-#if DEBUG
-                        InMemoryWhatsNewVersionStore()
-#else
-                        UserDefaultsWhatsNewVersionStore()
-#endif
-                    }(),
+                versionStore: UserDefaultsWhatsNewVersionStore(),
                 whatsNewCollection: self
              )
         )

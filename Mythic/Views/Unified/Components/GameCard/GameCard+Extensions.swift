@@ -420,12 +420,6 @@ extension GameCard {
                         .lineLimit(1)
                 }
             }
-
-#if DEBUG
-                                Text("(\(game.id))")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-#endif // DEBUG
         }
     }
 }

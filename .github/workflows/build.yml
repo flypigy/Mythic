@@ -39,7 +39,7 @@ jobs:
     - name: Build
       run: |
         xcodebuild -scheme Mythic \
-          -configuration Release \
+          -configuration Debug \
           -derivedDataPath build \
           CODE_SIGNING_ALLOWED=NO \
           SWIFTLINT=NO \
@@ -50,7 +50,7 @@ jobs:
     - name: Ad-hoc sign and package .app
       run: |
         set -euo pipefail
-        APP="build/Build/Products/Release/Mythic.app"
+        APP="build/Build/Products/Debug/Mythic.app"
 
         # Ad-hoc sign so the app launches locally without a developer certificate.
         # (First launch still needs a right-click → Open to bypass Gatekeeper.)
@@ -60,12 +60,12 @@ jobs:
         chmod +x "$APP/Contents/Resources/legendary/cli" 2>/dev/null || true
 
         # Zip it up for download.
-        cd build/Build/Products/Release
+        cd build/Build/Products/Debug
         ditto -c -k --keepParent Mythic.app Mythic.app.zip
 
     - name: Upload .app artifact
       uses: actions/upload-artifact@v7
       with:
         name: Mythic-app
-        path: build/Build/Products/Release/Mythic.app.zip
+        path: build/Build/Products/Debug/Mythic.app.zip
         retention-days: 30
