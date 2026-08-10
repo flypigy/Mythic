@@ -53,6 +53,12 @@ import OSLog
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = .init()
 
+    /// Re-entrancy guard: several Migrator tasks and the launch sequence each call
+    /// refreshFromStorefronts(); collapsing concurrent calls avoids doing the same
+    /// heavy metadata decode (758+ files) multiple times in parallel.
+    @ObservationIgnored
+    private var isRefreshingStorefronts = false
+
     var recent: Game? {
         guard !library.allSatisfy({ $0.lastLaunched == nil }) else { return nil }
 
@@ -62,19 +68,36 @@ import OSLog
     }
 
     func refreshFromStorefronts(_ storefronts: Game.Storefront...) async throws {
+        // Re-entrancy guard: drop concurrent calls (e.g. from multiple Migrator tasks
+        // firing during launch) so the heavy metadata decode runs once at a time.
+        guard !isRefreshingStorefronts else { return }
+        isRefreshingStorefronts = true
+        defer {
+            isRefreshingStorefronts = false
+        }
+
         GameListViewModel.shared.isUpdatingLibrary = true
         defer {
             GameListViewModel.shared.isUpdatingLibrary = false
         }
-        
+
         // if variadics are empty, default to all cases
         let storefronts = storefronts.isEmpty ? Game.Storefront.allCases : storefronts as [Game.Storefront]
         
         // legendary (epic games)
         if storefronts.contains(.epicGames) {
             do {
-                let installables = try Legendary.getInstallableGames()
-                let installed = try Legendary.getInstalledGames()
+                // Decode metadata (758+ JSON files) off the main actor to avoid freezing
+                // the UI during launch/refresh. These Legendary helpers are nonisolated.
+                async let installablesTask = Task.detached(priority: .userInitiated) {
+                    try Legendary.getInstallableGames()
+                }.value
+                async let installedTask = Task.detached(priority: .userInitiated) {
+                    try Legendary.getInstalledGames()
+                }.value
+
+                let installables = try await installablesTask
+                let installed = try await installedTask
 
                 // add installables that aren't installed
                 for game in installables where !installed.contains(where: { $0 == game }) {

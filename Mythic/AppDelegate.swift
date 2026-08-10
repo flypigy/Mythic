@@ -44,7 +44,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             try? await GameDataStore.shared.refreshFromStorefronts()
         }
 
-        Migrator.fullMigration()
+        // Run data migrations off the main thread to avoid blocking launch.
+        // fullMigration() spawns its own Tasks internally; calling it from a Task
+        // here keeps that bookkeeping off the launch-critical main thread.
+        Task.detached(priority: .utility) {
+            Migrator.fullMigration()
+        }
 
         // MARK: Start metadata update cycle for Legendary
         Task(priority: .utility) {
