@@ -709,18 +709,23 @@ final class Legendary {
 
         let metadataDirectory: URL = configurationFolder.appending(path: "metadata")
 
-        let games: [EpicGamesGame] = try {
-            try FileManager.default.contentsOfDirectory(atPath: metadataDirectory.path).map { fileName -> EpicGamesGame in
-                let data = try Data(contentsOf: metadataDirectory.appending(path: fileName))
-                let metadata = try JSONDecoder().decode(GameMetadata.self, from: data)
+        let games: [EpicGamesGame] = try FileManager.default.contentsOfDirectory(atPath: metadataDirectory.path).compactMap { fileName -> EpicGamesGame? in
+            let data = try Data(contentsOf: metadataDirectory.appending(path: fileName))
+            let metadata = try JSONDecoder().decode(GameMetadata.self, from: data)
 
-                let game: EpicGamesGame = .init(id: metadata.appName,
-                                                title: metadata.appTitle,
-                                                installationState: .uninstalled)
-
-                return game
+            // Only include items categorised as games. Epic accounts often own Unreal
+            // Engine marketplace assets/plugins/tools that share the metadata format but
+            // aren't games (they show up as "image unavailable" cards); skip those.
+            guard metadata.storeMetadata.categories.contains(where: { $0.path == "games" }) else {
+                return nil
             }
-        }()
+
+            let game: EpicGamesGame = .init(id: metadata.appName,
+                                            title: metadata.appTitle,
+                                            installationState: .uninstalled)
+
+            return game
+        }
 
         return games
     }
