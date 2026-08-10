@@ -90,6 +90,19 @@ import OSLog
                         library.update(with: fetchedGame)
                     }
                 }
+
+                // remove Epic entries that are neither real games (per metadata categories,
+                // which getInstallableGames now filters) nor currently installed.
+                // This prunes previously-synced non-game items (UE marketplace assets/plugins/DLC)
+                // and uninstalled titles no longer entitled to the account, while leaving local
+                // games and installed Epic games untouched.
+                let installableIDs = Set(installables.map(\.id))
+                let installedIDs = Set(installed.map(\.id))
+                library = library.filter { game in
+                    guard case .epicGames = game.storefront else { return true } // keep non-Epic games
+                    // keep installed Epic games and Epic games still in the (game-filtered) installables
+                    return installedIDs.contains(game.id) || installableIDs.contains(game.id)
+                }
             } catch {
                 log.error("Unable to refresh game data from Epic Games: \(error.localizedDescription)")
                 throw error
