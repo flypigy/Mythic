@@ -37,23 +37,6 @@ If you believe something's missing from the roadmap that we should add to the ap
 * Please note Mythic is only available for macOS 14 (Sonoma) and above.
   To verify your Mac's compatibility with Sonoma, visit https://support.apple.com/en-us/105113
 
-## Build a runnable `.app` via GitHub Actions (no local Xcode needed)
-This repo builds Mythic on every push and on manual trigger, then uploads a runnable
-`.app` as a build artifact you can download — no Xcode install required.
-
-1. Go to **[Actions → Build Mythic](https://github.com/flypigy/Mythic/actions/workflows/build.yml)**.
-2. Either wait for the latest run to finish, or click **Run workflow** → `main` → **Run workflow** to start one.
-3. Open the finished (green ✅) run and scroll to the **Artifacts** section at the bottom.
-4. Click **`Mythic-app`** to download `Mythic-app.zip`, then unzip it to get `Mythic.app`.
-5. First launch: **right-click** `Mythic.app` → **Open** → confirm **Open** in the dialog
-   (the app is ad-hoc signed, so Gatekeeper prompts once).
-   - If macOS still blocks it ("damaged" / "unidentified developer"), run:
-     ```bash
-     xattr -dr com.apple.quarantine /path/to/Mythic.app
-     ```
-
-> ⏰ Artifacts expire after **30 days** — re-trigger the workflow to regenerate one.
-
 ## Dependencies
 Mythic uses the following Swift dependencies:
 
