@@ -726,10 +726,8 @@ final class Legendary {
         log.debug("[DIAG] getInstallableGames: parsed \(games.count) games from \(metadataDirectory.path)")
         let luto = games.filter { $0.title.lowercased().contains("luto") || $0.title.lowercased().contains("foretales") }
         log.debug("[DIAG] Luto/Foretales in installables: \(luto.map { "\($0.id) \($0.title)" })")
-        // swiftlint:disable:next force_try
         let allIDs = games.map { $0.id }.joined(separator: ",")
         log.debug("[DIAG] all installable IDs: \(allIDs)")
-        // swiftlint:enable:previous force_try
 
         return games
     }
