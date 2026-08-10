@@ -722,13 +722,6 @@ final class Legendary {
             }
         }()
 
-        // MARK: - DEBUG: diagnose missing games
-        log.debug("[DIAG] getInstallableGames: parsed \(games.count) games from \(metadataDirectory.path)")
-        let luto = games.filter { $0.title.lowercased().contains("luto") || $0.title.lowercased().contains("foretales") }
-        log.debug("[DIAG] Luto/Foretales in installables: \(luto.map { "\($0.id) \($0.title)" })")
-        let allIDs = games.map { $0.id }.joined(separator: ",")
-        log.debug("[DIAG] all installable IDs: \(allIDs)")
-
         return games
     }
 
