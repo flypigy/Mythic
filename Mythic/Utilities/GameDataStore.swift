@@ -99,9 +99,17 @@ import OSLog
                 let installables = try await installablesTask
                 let installed = try await installedTask
 
-                // add installables that aren't installed
+                // add installables that aren't installed.
+                // Merge with any existing entry instead of replacing it, otherwise per-game state
+                // (isFavourited, lastLaunched, containerURL, ...) on the stored game would be wiped by
+                // the freshly-constructed EpicGamesGame from getInstallableGames() (all defaults).
                 for game in installables where !installed.contains(where: { $0 == game }) {
-                    library.update(with: game)
+                    if let existing = library.first(where: { $0 == game }) {
+                        try existing.merge(with: game, requiring: .identicalIgnoredKeys)
+                        library.update(with: existing)
+                    } else {
+                        library.update(with: game)
+                    }
                 }
 
                 // installed: merge instead of overwrite
