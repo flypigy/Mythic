@@ -71,19 +71,23 @@ extension Bundle {
      (Force-unwrappable)
      */
     static var appGames: URL? {
-        if let games = FileLocations.globalGames {
-            let appGamesURL = games.appending(path: "Mythic")
-            do {
-                try FileManager.default.createDirectory(
-                    at: appGamesURL,
-                    withIntermediateDirectories: true
-                )
-                return appGamesURL
-            } catch {
-                Logger.file.error("Unable to get games directory: \(error.localizedDescription)")
-            }
+        // Default install location is ~/Games/Mythic. Only create it if it doesn't
+        // already exist, so we never recreate/overwrite a user-managed directory.
+        let appGamesURL = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Games/Mythic")
+        if FileManager.default.fileExists(atPath: appGamesURL.path) {
+            return appGamesURL
         }
-        
+
+        do {
+            try FileManager.default.createDirectory(
+                at: appGamesURL,
+                withIntermediateDirectories: true
+            )
+            return appGamesURL
+        } catch {
+            Logger.file.error("Unable to get games directory: \(error.localizedDescription)")
+        }
+
         return nil
     }
 }
