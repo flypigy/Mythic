@@ -100,13 +100,17 @@ import OSLog
                 let installed = try await installedTask
 
                 // add installables that aren't installed.
-                // Merge with any existing entry instead of replacing it, otherwise per-game state
-                // (isFavourited, lastLaunched, containerURL, ...) on the stored game would be wiped by
-                // the freshly-constructed EpicGamesGame from getInstallableGames() (all defaults).
+                // IMPORTANT: getInstallableGames() returns freshly-constructed EpicGamesGame objects
+                // with all-default per-game state (isFavourited=false, lastLaunched=nil, ...).
+                // Because Game.== is by id, library.update(with:) would REPLACE any existing entry and
+                // wipe that state. So preserve the existing entry in place (only its installationState
+                // needs refreshing to .uninstalled) rather than swapping in the new object.
                 for game in installables where !installed.contains(where: { $0 == game }) {
                     if let existing = library.first(where: { $0 == game }) {
-                        try existing.merge(with: game, requiring: .identicalIgnoredKeys)
-                        library.update(with: existing)
+                        // keep the existing object as-is; it already carries the correct state.
+                        // (installationState for installables is .uninstalled, which matches an
+                        // uninstalled existing entry; installed entries are handled by the block below.)
+                        continue
                     } else {
                         library.update(with: game)
                     }
