@@ -26,6 +26,16 @@ import OSLog
         }
     }
 
+    /// Force the library to re-persist to UserDefaults.
+    ///
+    /// `library`'s didSet only fires when the Set itself is reassigned. Mutating a `Game`'s
+    /// property (e.g. toggling `isFavourited`) changes the object in place but does NOT change
+    /// the Set's membership, so the didSet never runs and the change is lost on restart.
+    /// Call this after such in-place mutations to persist them.
+    func persistLibrary() {
+        try? UserDefaults.standard.encodeAndSet(library.map({ AnyGame($0) }), forKey: "games")
+    }
+
     @MainActor private init() {
         // initialise observer
         gamesObserver = .init(key: "games",

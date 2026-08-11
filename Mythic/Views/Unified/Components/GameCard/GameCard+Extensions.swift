@@ -249,12 +249,16 @@ extension GameCard {
             @Binding var game: Game
             var withLabel: Bool = false
 
+            @Bindable private var gameDataStore: GameDataStore = .shared
             @State private var hoveringOverFavouriteButton = false
             @State private var animateFavouriteIcon = false
 
             var body: some View {
                 Button {
                     game.isFavourited.toggle()
+                    // Persist immediately: toggling isFavourited mutates the Game object in place,
+                    // which does not trigger library's didSet, so it would be lost on restart.
+                    gameDataStore.persistLibrary()
                     withAnimation { animateFavouriteIcon = game.isFavourited }
                 } label: {
                     if withLabel {
