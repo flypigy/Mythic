@@ -322,7 +322,7 @@ private struct GraphicsComponentSection: View {
     @State private var installedDXMTVersion: String?
 
     var body: some View {
-        Section("Graphics Translation Layers", isExpanded: $isExpanded) {
+        Section("Downloadable Versions", isExpanded: $isExpanded) {
             // DXVK version selector
             versionRow(for: .dxvk,
                        releases: dxvkReleases,
@@ -357,18 +357,18 @@ private struct GraphicsComponentSection: View {
                             isEnabled: Bool) -> some View {
         HStack {
             VStack(alignment: .leading) {
-                Text(component.displayName)
+                Text("\(component.displayName) version")
                     .font(.body)
                 if let installedVersion {
                     Text("Installed: \(installedVersion)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else if GraphicsComponent.isInstalled(component) {
-                    Text("Bundled version")
+                    Text("Bundled with engine")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Not installed")
+                    Text("Bundled with engine")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

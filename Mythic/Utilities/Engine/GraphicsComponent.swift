@@ -142,11 +142,32 @@ final class GraphicsComponent {
             throw URLError(.badServerResponse)
         }
 
+        // Decode raw JSON and build releases manually, skipping any release that
+        // has no downloadable .tar.gz asset (e.g. prereleases without assets).
+        // This avoids a single bad release aborting the entire decode.
+        struct RawRelease: Codable {
+            let tagName: String
+            let publishedAt: Date?
+            let assets: [Asset]
+        }
+        struct Asset: Codable {
+            let name: String
+            let browserDownloadURL: String
+        }
+
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        let releases = try decoder.decode([Release].self, from: data)
-        return releases
+        let rawReleases = try decoder.decode([RawRelease].self, from: data)
+
+        return rawReleases.compactMap { raw in
+            // Find the first .tar.gz asset (DXVK has multiple, DXMT typically one).
+            guard let asset = raw.assets.first(where: { $0.name.hasSuffix(".tar.gz") }),
+                  let url = URL(string: asset.browserDownloadURL) else {
+                return nil // skip releases without a downloadable tarball
+            }
+            return Release(tagName: raw.tagName, downloadURL: url, fileName: asset.name, publishedAt: raw.publishedAt)
+        }
     }
 
     // MARK: - Installation
