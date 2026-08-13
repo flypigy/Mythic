@@ -200,19 +200,32 @@ struct ContainerSettingsView: View {
                 // MARK: - DirectX translation layer (D3DMetal / DXMT / DXVK, mutually exclusive)
                 Toggle("GPTK (D3DMetal)", isOn: Binding(
                     get: { container.settings.d3dmetal },
-                    set: { newValue in switchTranslationLayer(to: .gptk, enabled: newValue) }
+                    set: { newValue in
+                        // GPTK is the default builtin — cannot be turned off.
+                        // Tapping it when already on is a no-op.
+                        guard newValue else { return }
+                        switchTranslationLayer(to: .gptk, enabled: true)
+                    }
                 ))
                 .disabled(modifyingTranslationLayer)
 
                 Toggle("DXMT", isOn: Binding(
                     get: { container.settings.dxmt },
-                    set: { newValue in switchTranslationLayer(to: .dxmt, enabled: newValue) }
+                    set: { newValue in
+                        // Radio semantics: can only enable, not disable (switch back via GPTK).
+                        guard newValue else { return }
+                        switchTranslationLayer(to: .dxmt, enabled: true)
+                    }
                 ))
                 .disabled(modifyingTranslationLayer)
 
                 Toggle("DXVK", isOn: Binding(
                     get: { container.settings.dxvk },
-                    set: { newValue in switchTranslationLayer(to: .dxvk, enabled: newValue) }
+                    set: { newValue in
+                        // Radio semantics: can only enable, not disable (switch back via GPTK).
+                        guard newValue else { return }
+                        switchTranslationLayer(to: .dxvk, enabled: true)
+                    }
                 ))
                 .disabled(modifyingTranslationLayer)
 
@@ -301,7 +314,7 @@ private struct GraphicsComponentSection: View {
     @State private var installedDXMTVersion: String?
 
     var body: some View {
-        Section("Downloadable Versions", isExpanded: $isExpanded) {
+        Section("Graphics Translation Layers", isExpanded: $isExpanded) {
             // DXVK version selector
             versionRow(for: .dxvk,
                        releases: dxvkReleases,
