@@ -225,9 +225,13 @@ final class Wine { // TODO: https://forum.winehq.org/viewtopic.php?t=15416
         environmentVariables["WINEMSYNC"] = container.settings.msync.numericalValue.description
         environmentVariables["ROSETTA_ADVERTISE_AVX"] = container.settings.avx2.numericalValue.description
 
+        // DXVK and DXMT are mutually exclusive — they override the same DLLs.
+        // DXVK overrides d3d10core + d3d11; DXMT also overrides dxgi.
         if container.settings.dxvk {
             environmentVariables["WINEDLLOVERRIDES"] = "d3d10core,d3d11=n,b"
             environmentVariables["DXVK_ASYNC"] = container.settings.dxvkAsync.numericalValue.description
+        } else if container.settings.dxmt {
+            environmentVariables["WINEDLLOVERRIDES"] = "d3d10core,d3d11,dxgi=n,b"
         }
 
         if container.settings.metalHUD {

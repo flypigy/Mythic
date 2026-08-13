@@ -25,6 +25,20 @@ struct ContainerSettingsView: View {
     @State private var modifyingDXVK: Bool = false
     @State private var dxvkSuccess: Bool?
 
+    // DXMT toggle state (DXMT is mutually exclusive with DXVK)
+    @State private var isDXMTDisclaimerPresented: Bool = false
+    @State private var modifyingDXMT: Bool = false
+    @State private var dxmtSuccess: Bool?
+
+    // Graphics component version selection state
+    @State private var dxvkReleases: [GraphicsComponent.Release] = []
+    @State private var dxmtReleases: [GraphicsComponent.Release] = []
+    @State private var isFetchingReleases: Bool = false
+    @State private var installingComponent: GraphicsComponent.Component?
+    @State private var componentInstallProgress: Double = 0
+    @State private var componentInstallError: String?
+    @State private var isComponentInstallErrorPresented: Bool = false
+
     @State private var windowsVersion: Wine.WindowsVersion = Wine.Container.Settings().windowsVersion
     @State private var modifyingWindowsVersion: Bool = true // keep progressview displayed until async fetching is complete
     @State private var windowsVersionSuccess: Bool?
@@ -181,6 +195,64 @@ struct ContainerSettingsView: View {
                 ))
                 .disabled(!container.settings.dxvk || modifyingDXVK)
 
+                // MARK: - Graphics component version selection
+                GraphicsComponentSection(container: container,
+                                         dxvkReleases: $dxvkReleases,
+                                         dxmtReleases: $dxmtReleases,
+                                         isFetchingReleases: $isFetchingReleases,
+                                         installingComponent: $installingComponent,
+                                         componentInstallProgress: $componentInstallProgress,
+                                         isComponentInstallErrorPresented: $isComponentInstallErrorPresented,
+                                         componentInstallError: $componentInstallError)
+
+                // MARK: - DXMT toggle (mutually exclusive with DXVK)
+                Toggle("DXMT", isOn: Binding(
+                    get: { container.settings.dxmt },
+                    set: { _ in isDXMTDisclaimerPresented = true }
+                ))
+                .disabled(modifyingDXMT || modifyingDXVK)
+                .withOperationStatus(
+                    operating: $modifyingDXMT,
+                    successful: $dxmtSuccess,
+                    observing: .constant(false),
+                    placement: .leading,
+                    action: { /* handled by alert presentation */ }
+                )
+                .alert("Quit games running in this container?",
+                       isPresented: $isDXMTDisclaimerPresented) {
+                    Button("OK", role: .destructive) {
+                        Task(priority: .userInitiated) {
+                            modifyingDXMT = true
+                            defer { modifyingDXMT = false }
+
+                            do {
+                                if container.settings.dxmt {
+                                    try await Wine.boot(at: container.url, parameters: .update)
+                                } else {
+                                    // DXMT and DXVK are mutually exclusive — turn off DXVK first
+                                    if container.settings.dxvk {
+                                        container.settings.dxvk = false
+                                    }
+                                    try await Wine.DXVK.installDXMT(toContainerAtURL: container.url)
+                                }
+                                container.settings.dxmt.toggle()
+                                dxmtSuccess = true
+                            } catch {
+                                dxmtSuccess = false
+                            }
+                        }
+                    }
+
+                    Button("Cancel", role: .cancel, action: {})
+                } message: {
+                    Text("""
+                        To toggle DXMT, Mythic must quit all games currently running in this container.
+                        DXMT (Metal-based) will replace DXVK/D3DMetal for DirectX translation.
+
+                        Toggling DXMT may impact compatibility positively or negatively.
+                        """)
+                }
+
                 Picker("Windows Version", selection: $windowsVersion) {
                     ForEach(Wine.WindowsVersion.allCases, id: \.self) { version in
                         Text("Windows® \(version.rawValue)").tag(version)
@@ -224,6 +296,173 @@ struct ContainerSettingsView: View {
                 Please remove it from Mythic.
                 """)
             )
+        }
+    }
+}
+
+// MARK: - Graphics Component Version Selection
+
+/// A collapsible section that lets the user download and install specific DXVK/DXMT versions
+/// from GitHub. Version selection is global (replaces the Engine's bundled DLLs), but this
+/// section lives in container settings alongside the DXVK/DXMT toggles.
+private struct GraphicsComponentSection: View {
+    @ObservedObject var container: Wine.Container
+
+    @Binding var dxvkReleases: [GraphicsComponent.Release]
+    @Binding var dxmtReleases: [GraphicsComponent.Release]
+    @Binding var isFetchingReleases: Bool
+    @Binding var installingComponent: GraphicsComponent.Component?
+    @Binding var componentInstallProgress: Double
+    @Binding var isComponentInstallErrorPresented: Bool
+    @Binding var componentInstallError: String?
+
+    @State private var isExpanded: Bool = false
+    @State private var installedDXVKVersion: String?
+    @State private var installedDXMTVersion: String?
+
+    var body: some View {
+        Section("Graphics Translation Layers", isExpanded: $isExpanded) {
+            // Fetch releases on first expand
+            if isExpanded && dxvkReleases.isEmpty && dxmtReleases.isEmpty && !isFetchingReleases {
+                Color.clear.frame(height: 0)
+                    .task { await fetchReleases() }
+            }
+
+            // DXVK version selector
+            versionRow(for: .dxvk,
+                       releases: dxvkReleases,
+                       installedVersion: installedDXVKVersion,
+                       isEnabled: container.settings.dxvk)
+
+            // DXMT version selector
+            versionRow(for: .dxmt,
+                       releases: dxmtReleases,
+                       installedVersion: installedDXMTVersion,
+                       isEnabled: container.settings.dxmt)
+        }
+        .task { await refreshInstalledVersions() }
+        .alert("Installation failed", isPresented: $isComponentInstallErrorPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(componentInstallError ?? "An unknown error occurred.")
+        }
+    }
+
+    /// A single component's version picker row.
+    @ViewBuilder
+    private func versionRow(for component: GraphicsComponent.Component,
+                            releases: [GraphicsComponent.Release],
+                            installedVersion: String?,
+                            isEnabled: Bool) -> some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(component.displayName)
+                    .font(.body)
+                if let installedVersion {
+                    Text("Installed: \(installedVersion)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if GraphicsComponent.isInstalled(component) {
+                    Text("Bundled version")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Not installed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            if isFetchingReleases {
+                ProgressView().controlSize(.small)
+            } else if installingComponent == component {
+                ProgressView(value: componentInstallProgress)
+                    .frame(width: 80)
+                    .progressViewStyle(.linear)
+                    .controlSize(.small)
+            } else if !releases.isEmpty {
+                Menu {
+                    ForEach(releases) { release in
+                        Button(release.tagName) {
+                            Task { await installRelease(release, for: component) }
+                        }
+                    }
+                } label: {
+                    Label("Choose version", systemImage: "arrow.down.circle")
+                        .labelStyle(.titleAndIcon)
+                }
+                .menuStyle(.borderlessButton)
+                .disabled(!Engine.isInstalled)
+            } else {
+                Button("Retry") {
+                    Task { await fetchReleases() }
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func fetchReleases() async {
+        await MainActor.run { isFetchingReleases = true }
+
+        async let dxvk = try? GraphicsComponent.fetchReleases(for: .dxvk)
+        async let dxmt = try? GraphicsComponent.fetchReleases(for: .dxmt)
+
+        let (dxvkResult, dxmtResult) = await (dxvk, dxmt)
+
+        await MainActor.run {
+            dxvkReleases = dxvkResult ?? []
+            dxmtReleases = dxmtResult ?? []
+            isFetchingReleases = false
+        }
+    }
+
+    private func refreshInstalledVersions() async {
+        let dxvkVer = GraphicsComponent.installedVersion(for: .dxvk)
+        let dxmtVer = GraphicsComponent.installedVersion(for: .dxmt)
+        await MainActor.run {
+            installedDXVKVersion = dxvkVer
+            installedDXMTVersion = dxmtVer
+        }
+    }
+
+    private func installRelease(_ release: GraphicsComponent.Release,
+                                for component: GraphicsComponent.Component) async {
+        await MainActor.run {
+            installingComponent = component
+            componentInstallProgress = 0
+        }
+
+        do {
+            for try await progress in GraphicsComponent.install(release, for: component) {
+                let fraction = progress.progress.fractionCompleted
+                await MainActor.run {
+                    switch progress.stage {
+                    case .downloading:
+                        componentInstallProgress = fraction * 0.8 // download is ~80% of total
+                    case .installing:
+                        componentInstallProgress = 0.8 + (fraction * 0.2)
+                    }
+                }
+            }
+
+            await MainActor.run {
+                installingComponent = nil
+                componentInstallProgress = 0
+            }
+
+            // Refresh the displayed installed version
+            await refreshInstalledVersions()
+        } catch {
+            await MainActor.run {
+                installingComponent = nil
+                componentInstallError = error.localizedDescription
+                isComponentInstallErrorPresented = true
+            }
         }
     }
 }
