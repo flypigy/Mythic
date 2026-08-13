@@ -21,14 +21,8 @@ struct ContainerSettingsView: View {
     @State private var modifyingRetinaMode: Bool = true // keep progressview displayed until async fetching is complete
     @State private var retinaModeSuccess: Bool?
 
-    @State private var isDXVKDisclaimerPresented: Bool = false
-    @State private var modifyingDXVK: Bool = false
-    @State private var dxvkSuccess: Bool?
-
-    // DXMT toggle state (DXMT is mutually exclusive with DXVK)
-    @State private var isDXMTDisclaimerPresented: Bool = false
-    @State private var modifyingDXMT: Bool = false
-    @State private var dxmtSuccess: Bool?
+    // Translation layer toggle state (D3DMetal / DXMT / DXVK are mutually exclusive)
+    @State private var modifyingTranslationLayer: Bool = false
 
     // Graphics component version selection state
     @State private var dxvkReleases: [GraphicsComponent.Release] = []
@@ -76,6 +70,64 @@ struct ContainerSettingsView: View {
             }
         } catch {
             windowsVersionSuccess = false
+        }
+    }
+
+    // MARK: - Translation layer switching
+
+    private enum TranslationLayer { case gptk, dxvk, dxmt }
+
+    /// Switches the DirectX translation layer for the current container.
+    /// D3DMetal (GPTK), DXVK, and DXMT are mutually exclusive — enabling one
+    /// disables the others. When toggled off, falls back to GPTK (D3DMetal).
+    private func switchTranslationLayer(to layer: TranslationLayer, enabled: Bool) {
+        guard let selectedContainerURL,
+              let container = try? Wine.getContainerObject(at: selectedContainerURL) else { return }
+
+        Task(priority: .userInitiated) {
+            await MainActor.run { modifyingTranslationLayer = true }
+            defer { Task { @MainActor in modifyingTranslationLayer = false } }
+
+            do {
+                if !enabled {
+                    // Turning off the current layer → revert to GPTK (D3DMetal).
+                    // wineboot --update restores Wine's builtin DLLs.
+                    try await Wine.boot(at: container.url, parameters: .update)
+                    await MainActor.run {
+                        container.settings.d3dmetal = true
+                        container.settings.dxvk = false
+                        container.settings.dxmt = false
+                    }
+                } else {
+                    // Enable the selected layer, install its DLLs.
+                    try await Wine.killAll(at: container.url)
+                    switch layer {
+                    case .gptk:
+                        try await Wine.boot(at: container.url, parameters: .update)
+                        await MainActor.run {
+                            container.settings.d3dmetal = true
+                            container.settings.dxvk = false
+                            container.settings.dxmt = false
+                        }
+                    case .dxvk:
+                        try await Wine.DXVK.install(toContainerAtURL: container.url)
+                        await MainActor.run {
+                            container.settings.d3dmetal = false
+                            container.settings.dxvk = true
+                            container.settings.dxmt = false
+                        }
+                    case .dxmt:
+                        try await Wine.DXVK.installDXMT(toContainerAtURL: container.url)
+                        await MainActor.run {
+                            container.settings.d3dmetal = false
+                            container.settings.dxvk = false
+                            container.settings.dxmt = true
+                        }
+                    }
+                }
+            } catch {
+                // On failure, leave settings unchanged.
+            }
         }
     }
 
@@ -145,107 +197,30 @@ struct ContainerSettingsView: View {
                     return "AVX2 is only supported on macOS Sequoia (15) or later."
                 }())
 
-                // MARK: - DXMT toggle (mutually exclusive with DXVK)
+                // MARK: - DirectX translation layer (D3DMetal / DXMT / DXVK, mutually exclusive)
+                Toggle("GPTK (D3DMetal)", isOn: Binding(
+                    get: { container.settings.d3dmetal },
+                    set: { newValue in switchTranslationLayer(to: .gptk, enabled: newValue) }
+                ))
+                .disabled(modifyingTranslationLayer)
+
                 Toggle("DXMT", isOn: Binding(
                     get: { container.settings.dxmt },
-                    set: { _ in isDXMTDisclaimerPresented = true }
+                    set: { newValue in switchTranslationLayer(to: .dxmt, enabled: newValue) }
                 ))
-                .disabled(modifyingDXMT || modifyingDXVK)
-                .withOperationStatus(
-                    operating: $modifyingDXMT,
-                    successful: $dxmtSuccess,
-                    observing: .constant(false),
-                    placement: .leading,
-                    action: { /* handled by alert presentation */ }
-                )
-                .alert("Quit games running in this container?",
-                       isPresented: $isDXMTDisclaimerPresented) {
-                    Button("OK", role: .destructive) {
-                        Task(priority: .userInitiated) {
-                            modifyingDXMT = true
-                            defer { modifyingDXMT = false }
-
-                            do {
-                                if container.settings.dxmt {
-                                    try await Wine.boot(at: container.url, parameters: .update)
-                                } else {
-                                    // DXMT and DXVK are mutually exclusive — turn off DXVK first
-                                    if container.settings.dxvk {
-                                        container.settings.dxvk = false
-                                    }
-                                    try await Wine.DXVK.installDXMT(toContainerAtURL: container.url)
-                                }
-                                container.settings.dxmt.toggle()
-                                dxmtSuccess = true
-                            } catch {
-                                dxmtSuccess = false
-                            }
-                        }
-                    }
-
-                    Button("Cancel", role: .cancel, action: {})
-                } message: {
-                    Text("""
-                        To toggle DXMT, Mythic must quit all games currently running in this container.
-                        DXMT (Metal-based) will replace DXVK/D3DMetal for DirectX translation.
-
-                        Toggling DXMT may impact compatibility positively or negatively.
-                        """)
-                }
+                .disabled(modifyingTranslationLayer)
 
                 Toggle("DXVK", isOn: Binding(
                     get: { container.settings.dxvk },
-                    set: { _ in
-                        isDXVKDisclaimerPresented = true
-                    }
+                    set: { newValue in switchTranslationLayer(to: .dxvk, enabled: newValue) }
                 ))
-                .withOperationStatus(
-                    operating: $modifyingDXVK,
-                    successful: $dxvkSuccess,
-                    observing: .constant(false),
-                    placement: .leading,
-                    action: { /* handled by alert presentation */ }
-                )
-                .alert("Quit games running in this container?",
-                       isPresented: $isDXVKDisclaimerPresented) {
-                    Button("OK", role: .destructive) {
-                        Task(priority: .userInitiated) {
-                            modifyingDXVK = true
-                            defer { modifyingDXVK = false }
-
-                            do {
-                                if container.settings.dxvk {
-                                    try await Wine.boot(at: container.url, parameters: .update)
-                                } else {
-                                    // DXVK and DXMT are mutually exclusive — turn off DXMT first
-                                    if container.settings.dxmt {
-                                        container.settings.dxmt = false
-                                    }
-                                    try await Wine.DXVK.install(toContainerAtURL: container.url)
-                                }
-                                container.settings.dxvk.toggle()
-                                dxvkSuccess = true
-                            } catch {
-                                dxvkSuccess = false
-                            }
-                        }
-                    }
-
-                    Button("Cancel", role: .cancel, action: {})
-                } message: {
-                    Text("""
-                        To toggle DXVK, Mythic must quit all games currently running in this container.
-                        Additionally, D3DMetal will be disabled.
-
-                        Toggling DXVK may impact compatibility positively or negatively.
-                        """)
-                }
+                .disabled(modifyingTranslationLayer)
 
                 Toggle("Asynchronous DXVK", isOn: Binding(
                     get: { container.settings.dxvkAsync },
                     set: { container.settings.dxvkAsync = $0 }
                 ))
-                .disabled(!container.settings.dxvk || modifyingDXVK)
+                .disabled(!container.settings.dxvk || modifyingTranslationLayer)
 
                 // MARK: - Graphics component version selection
                 GraphicsComponentSection(container: container,

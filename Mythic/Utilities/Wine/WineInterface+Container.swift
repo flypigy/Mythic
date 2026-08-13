@@ -102,6 +102,9 @@ extension Wine.Container {
         var metalHUD: Bool
         var msync: Bool
         var retinaMode: Bool
+        /// Whether to use GPTK's D3DMetal (Wine's builtin DirectX-to-Metal translation).
+        /// Mutually exclusive with `dxvk` and `dxmt`. Defaults to true (the Engine default).
+        var d3dmetal: Bool
         var dxvk: Bool
         var dxvkAsync: Bool
         var dxmt: Bool
@@ -112,6 +115,7 @@ extension Wine.Container {
         init(metalHUD: Bool = false,
              msync: Bool = true,
              retinaMode: Bool = true,
+             d3dmetal: Bool = true,
              dxvk: Bool = false,
              dxvkAsync: Bool = false,
              dxmt: Bool = false,
@@ -121,6 +125,7 @@ extension Wine.Container {
             self.metalHUD = metalHUD
             self.msync = msync
             self.retinaMode = retinaMode
+            self.d3dmetal = d3dmetal
             self.dxvk = dxvk
             self.dxvkAsync = dxvkAsync
             self.dxmt = dxmt
@@ -147,6 +152,7 @@ extension Wine.Container.Settings: Codable {
         case metalHUD
         case msync
         case retinaMode
+        case d3dmetal
         case dxvk
         case dxvkAsync
         case dxmt
@@ -162,6 +168,7 @@ extension Wine.Container.Settings: Codable {
         self.metalHUD = try container.decodeIfPresent(Bool.self, forKey: .metalHUD) ?? self.metalHUD
         self.msync = try container.decodeIfPresent(Bool.self, forKey: .msync) ?? self.msync
         self.retinaMode = try container.decodeIfPresent(Bool.self, forKey: .retinaMode) ?? self.retinaMode
+        self.d3dmetal = try container.decodeIfPresent(Bool.self, forKey: .d3dmetal) ?? self.d3dmetal
         self.dxvk = try container.decodeIfPresent(Bool.self, forKey: .dxvk) ?? self.dxvk
         self.dxvkAsync = try container.decodeIfPresent(Bool.self, forKey: .dxvkAsync) ?? self.dxvkAsync
         self.dxmt = try container.decodeIfPresent(Bool.self, forKey: .dxmt) ?? self.dxmt
