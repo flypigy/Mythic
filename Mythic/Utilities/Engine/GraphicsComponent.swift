@@ -210,7 +210,7 @@ final class GraphicsComponent {
     /// subdirectories. This function extracts to a temp directory, locates those subdirectories,
     /// and copies them into the component's Engine directory.
     private static func extractAndInstall(tarball: URL, for component: Component, version: String) throws {
-        let tempDir = FileManager.default.createUniqueTemporaryDirectory()
+        let tempDir = try FileManager.default.createUniqueTemporaryDirectory()
 
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
