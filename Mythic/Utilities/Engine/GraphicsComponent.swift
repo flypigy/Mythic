@@ -149,10 +149,21 @@ final class GraphicsComponent {
             let tagName: String
             let publishedAt: Date?
             let assets: [Asset]
+
+            enum CodingKeys: String, CodingKey {
+                case tagName = "tag_name"
+                case publishedAt = "published_at"
+                case assets
+            }
         }
         struct Asset: Codable {
             let name: String
             let browserDownloadURL: String
+
+            enum CodingKeys: String, CodingKey {
+                case name
+                case browserDownloadURL = "browser_download_url"
+            }
         }
 
         let decoder = JSONDecoder()

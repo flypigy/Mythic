@@ -145,66 +145,6 @@ struct ContainerSettingsView: View {
                     return "AVX2 is only supported on macOS Sequoia (15) or later."
                 }())
 
-                Toggle("DXVK", isOn: Binding(
-                    get: { container.settings.dxvk },
-                    set: { _ in
-                        isDXVKDisclaimerPresented = true
-                    }
-                ))
-                .withOperationStatus(
-                    operating: $modifyingDXVK,
-                    successful: $dxvkSuccess,
-                    observing: .constant(false),
-                    placement: .leading,
-                    action: { /* handled by alert presentation */ }
-                )
-                .alert("Quit games running in this container?",
-                       isPresented: $isDXVKDisclaimerPresented) {
-                    Button("OK", role: .destructive) {
-                        Task(priority: .userInitiated) {
-                            modifyingDXVK = true
-                            defer { modifyingDXVK = false }
-
-                            do {
-                                if container.settings.dxvk {
-                                    try await Wine.boot(at: container.url, parameters: .update)
-                                } else {
-                                    try await Wine.DXVK.install(toContainerAtURL: container.url)
-                                }
-                                container.settings.dxvk.toggle()
-                                dxvkSuccess = true
-                            } catch {
-                                dxvkSuccess = false
-                            }
-                        }
-                    }
-
-                    Button("Cancel", role: .cancel, action: {})
-                } message: {
-                    Text("""
-                        To toggle DXVK, Mythic must quit all games currently running in this container.
-                        Additionally, D3DMetal will be disabled.
-                        
-                        Toggling DXVK may impact compatibility positively or negatively.
-                        """)
-                }
-
-                Toggle("Asynchronous DXVK", isOn: Binding(
-                    get: { container.settings.dxvkAsync },
-                    set: { container.settings.dxvkAsync = $0 }
-                ))
-                .disabled(!container.settings.dxvk || modifyingDXVK)
-
-                // MARK: - Graphics component version selection
-                GraphicsComponentSection(container: container,
-                                         dxvkReleases: $dxvkReleases,
-                                         dxmtReleases: $dxmtReleases,
-                                         isFetchingReleases: $isFetchingReleases,
-                                         installingComponent: $installingComponent,
-                                         componentInstallProgress: $componentInstallProgress,
-                                         isComponentInstallErrorPresented: $isComponentInstallErrorPresented,
-                                         componentInstallError: $componentInstallError)
-
                 // MARK: - DXMT toggle (mutually exclusive with DXVK)
                 Toggle("DXMT", isOn: Binding(
                     get: { container.settings.dxmt },
@@ -252,6 +192,70 @@ struct ContainerSettingsView: View {
                         Toggling DXMT may impact compatibility positively or negatively.
                         """)
                 }
+
+                Toggle("DXVK", isOn: Binding(
+                    get: { container.settings.dxvk },
+                    set: { _ in
+                        isDXVKDisclaimerPresented = true
+                    }
+                ))
+                .withOperationStatus(
+                    operating: $modifyingDXVK,
+                    successful: $dxvkSuccess,
+                    observing: .constant(false),
+                    placement: .leading,
+                    action: { /* handled by alert presentation */ }
+                )
+                .alert("Quit games running in this container?",
+                       isPresented: $isDXVKDisclaimerPresented) {
+                    Button("OK", role: .destructive) {
+                        Task(priority: .userInitiated) {
+                            modifyingDXVK = true
+                            defer { modifyingDXVK = false }
+
+                            do {
+                                if container.settings.dxvk {
+                                    try await Wine.boot(at: container.url, parameters: .update)
+                                } else {
+                                    // DXVK and DXMT are mutually exclusive — turn off DXMT first
+                                    if container.settings.dxmt {
+                                        container.settings.dxmt = false
+                                    }
+                                    try await Wine.DXVK.install(toContainerAtURL: container.url)
+                                }
+                                container.settings.dxvk.toggle()
+                                dxvkSuccess = true
+                            } catch {
+                                dxvkSuccess = false
+                            }
+                        }
+                    }
+
+                    Button("Cancel", role: .cancel, action: {})
+                } message: {
+                    Text("""
+                        To toggle DXVK, Mythic must quit all games currently running in this container.
+                        Additionally, D3DMetal will be disabled.
+
+                        Toggling DXVK may impact compatibility positively or negatively.
+                        """)
+                }
+
+                Toggle("Asynchronous DXVK", isOn: Binding(
+                    get: { container.settings.dxvkAsync },
+                    set: { container.settings.dxvkAsync = $0 }
+                ))
+                .disabled(!container.settings.dxvk || modifyingDXVK)
+
+                // MARK: - Graphics component version selection
+                GraphicsComponentSection(container: container,
+                                         dxvkReleases: $dxvkReleases,
+                                         dxmtReleases: $dxmtReleases,
+                                         isFetchingReleases: $isFetchingReleases,
+                                         installingComponent: $installingComponent,
+                                         componentInstallProgress: $componentInstallProgress,
+                                         isComponentInstallErrorPresented: $isComponentInstallErrorPresented,
+                                         componentInstallError: $componentInstallError)
 
                 Picker("Windows Version", selection: $windowsVersion) {
                     ForEach(Wine.WindowsVersion.allCases, id: \.self) { version in
