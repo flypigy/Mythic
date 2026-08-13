@@ -231,7 +231,7 @@ final class Wine { // TODO: https://forum.winehq.org/viewtopic.php?t=15416
             environmentVariables["WINEDLLOVERRIDES"] = "d3d10core,d3d11=n,b"
             environmentVariables["DXVK_ASYNC"] = container.settings.dxvkAsync.numericalValue.description
         } else if container.settings.dxmt {
-            environmentVariables["WINEDLLOVERRIDES"] = "d3d10core,d3d11,dxgi=n,b"
+            environmentVariables["WINEDLLOVERRIDES"] = "d3d10core,d3d11,dxgi,winemetal=n,b"
         }
 
         if container.settings.metalHUD {

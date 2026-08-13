@@ -263,10 +263,11 @@ final class GraphicsComponent {
             throw CocoaError(.fileWriteUnknown)
         }
 
-        // Locate the x32/ and x64/ directories inside the extracted archive.
+        // Locate the 32-bit and 64-bit DLL directories inside the extracted archive.
+        // DXVK uses x32/ + x64/, DXMT uses i386-windows/ + x86_64-windows/.
         // They may be nested inside a version-named top-level folder.
-        guard let (x32URL, x64URL) = findArchDirectories(in: tempDir) else {
-            log.error("Could not find x32/ and x64/ directories in \(component.displayName) archive")
+        guard let (dir32, dir64) = findArchDirectories(in: tempDir) else {
+            log.error("Could not find 32-bit and 64-bit DLL directories in \(component.displayName) archive")
             throw CocoaError(.fileNoSuchFile)
         }
 
@@ -277,9 +278,27 @@ final class GraphicsComponent {
         }
         try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
 
-        // Copy x32/ and x64/ into the component directory.
-        try FileManager.default.copyItem(at: x32URL, to: dest.appending(path: "x32"))
-        try FileManager.default.copyItem(at: x64URL, to: dest.appending(path: "x64"))
+        // Copy the arch directories, normalised to x32/ and x64/ so that
+        // Wine.DXVK.install / installDXMT can find them at the expected paths.
+        try FileManager.default.copyItem(at: dir32, to: dest.appending(path: "x32"))
+        try FileManager.default.copyItem(at: dir64, to: dest.appending(path: "x64"))
+
+        // DXMT ships a Unix shared library (winemetal.so) in x86_64-unix/.
+        // This is the actual Metal translation backend — without it the DXMT
+        // DLLs will crash on load. Install it into Wine's lib directory.
+        if let unixDir = findUnixLibDirectory(in: tempDir) {
+            let wineLibDir = Engine.directory.appending(path: "wine/lib/x86_64-unix")
+            try FileManager.default.createDirectory(at: wineLibDir, withIntermediateDirectories: true)
+            if let contents = try? FileManager.default.contentsOfDirectory(atPath: unixDir.path) {
+                for file in contents where file.hasSuffix(".so") {
+                    let src = unixDir.appending(path: file)
+                    let dst = wineLibDir.appending(path: file)
+                    try? FileManager.default.removeItem(at: dst)
+                    try FileManager.default.copyItem(at: src, to: dst)
+                    log.notice("Installed \(file) to Wine lib directory")
+                }
+            }
+        }
 
         // Record the installed version for display.
         let versionFile = dest.appending(path: ".version")
@@ -289,16 +308,27 @@ final class GraphicsComponent {
         try? FileManager.default.removeItem(at: tarball)
     }
 
-    /// Recursively searches a directory for sibling `x32/` and `x64/` folders (the DXVK/DXMT
-    /// layout). Returns their URLs if both are found.
-    private static func findArchDirectories(in directory: URL) -> (x32: URL, x64: URL)? {
+    /// Searches a directory for the 32-bit and 64-bit DLL folders used by DXVK or DXMT.
+    /// Supported layouts (may be nested in a version-named wrapper folder):
+    ///   - DXVK:   `x32/` + `x64/`
+    ///   - DXMT:   `i386-windows/` + `x86_64-windows/`
+    /// Returns the URLs of both directories if found.
+    private static func findArchDirectories(in directory: URL) -> (dir32: URL, dir64: URL)? {
         let fm = FileManager.default
 
-        // Check direct children first (common case: archive top-level has x32/x64).
-        let directX32 = directory.appending(path: "x32")
-        let directX64 = directory.appending(path: "x64")
-        if fm.fileExists(atPath: directX32.path) && fm.fileExists(atPath: directX64.path) {
-            return (directX32, directX64)
+        // Known directory name pairs for each layout.
+        let layouts: [(String, String)] = [
+            ("x32", "x64"),                       // DXVK
+            ("i386-windows", "x86_64-windows")    // DXMT
+        ]
+
+        // Check direct children first.
+        for (name32, name64) in layouts {
+            let d32 = directory.appending(path: name32)
+            let d64 = directory.appending(path: name64)
+            if fm.fileExists(atPath: d32.path) && fm.fileExists(atPath: d64.path) {
+                return (d32, d64)
+            }
         }
 
         // Search one level deeper (when there's a version-named wrapper folder).
@@ -307,11 +337,35 @@ final class GraphicsComponent {
         }
 
         for subdirectory in contents where (try? subdirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            let nestedX32 = subdirectory.appending(path: "x32")
-            let nestedX64 = subdirectory.appending(path: "x64")
-            if fm.fileExists(atPath: nestedX32.path) && fm.fileExists(atPath: nestedX64.path) {
-                return (nestedX32, nestedX64)
+            for (name32, name64) in layouts {
+                let d32 = subdirectory.appending(path: name32)
+                let d64 = subdirectory.appending(path: name64)
+                if fm.fileExists(atPath: d32.path) && fm.fileExists(atPath: d64.path) {
+                    return (d32, d64)
+                }
             }
+        }
+
+        return nil
+    }
+
+    /// Searches for the `x86_64-unix/` directory (DXMT's Unix shared library folder).
+    /// Returns nil if not present (e.g. DXVK archives don't have it).
+    private static func findUnixLibDirectory(in directory: URL) -> URL? {
+        let fm = FileManager.default
+        let target = "x86_64-unix"
+
+        // Check direct child.
+        let direct = directory.appending(path: target)
+        if fm.fileExists(atPath: direct.path) { return direct }
+
+        // Check one level deeper (version-named wrapper folder).
+        guard let contents = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey]) else {
+            return nil
+        }
+        for subdirectory in contents where (try? subdirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            let nested = subdirectory.appending(path: target)
+            if fm.fileExists(atPath: nested.path) { return nested }
         }
 
         return nil
