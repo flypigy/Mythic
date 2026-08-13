@@ -317,17 +317,12 @@ private struct GraphicsComponentSection: View {
     @Binding var componentInstallError: String?
 
     @State private var isExpanded: Bool = false
+    @State private var hasFetchedReleases: Bool = false
     @State private var installedDXVKVersion: String?
     @State private var installedDXMTVersion: String?
 
     var body: some View {
         Section("Graphics Translation Layers", isExpanded: $isExpanded) {
-            // Fetch releases on first expand
-            if isExpanded && dxvkReleases.isEmpty && dxmtReleases.isEmpty && !isFetchingReleases {
-                Color.clear.frame(height: 0)
-                    .task { await fetchReleases() }
-            }
-
             // DXVK version selector
             versionRow(for: .dxvk,
                        releases: dxvkReleases,
@@ -339,6 +334,12 @@ private struct GraphicsComponentSection: View {
                        releases: dxmtReleases,
                        installedVersion: installedDXMTVersion,
                        isEnabled: container.settings.dxmt)
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            // Fetch releases once when first expanded.
+            guard expanded, !hasFetchedReleases else { return }
+            hasFetchedReleases = true
+            Task { await fetchReleases() }
         }
         .task { await refreshInstalledVersions() }
         .alert("Installation failed", isPresented: $isComponentInstallErrorPresented) {
