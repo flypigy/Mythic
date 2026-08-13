@@ -21,12 +21,12 @@ extension Wine {
 
         /// Replaces the Engine’s DirectX DLLs in the specified Wine container with their DXVK equivalents.
         static func install(toContainerAtURL containerURL: URL) async throws {
-            try install(from: Engine.directory.appending(path: "dxvk"), toContainerAtURL: containerURL)
+            try await install(from: Engine.directory.appending(path: "dxvk"), toContainerAtURL: containerURL)
         }
 
         /// Replaces the Engine’s DirectX DLLs in the specified Wine container with their DXMT equivalents.
         static func installDXMT(toContainerAtURL containerURL: URL) async throws {
-            try install(from: Engine.directory.appending(path: "dxmt"), toContainerAtURL: containerURL)
+            try await install(from: Engine.directory.appending(path: "dxmt"), toContainerAtURL: containerURL)
         }
 
         /// Shared install logic: copies override DLLs from a component directory
