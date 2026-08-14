@@ -760,25 +760,37 @@ final class Legendary {
         guard await !GameListViewModel.shared.isUpdatingLibrary else { return }
         var arguments: [String] = ["list"]
         if forced { arguments.append("--force-refresh") }
-        
+
         Task {
             await MainActor.run {
                 GameListViewModel.shared.isUpdatingLibrary = true
             }
-            
+
             defer {
                 Task { @MainActor in
                     GameListViewModel.shared.isUpdatingLibrary = false
                 }
             }
-            
+
+            // Record metadata file count before refresh to detect new games.
+            let metadataDirectory = configurationFolder.appending(path: "metadata")
+            let countBefore = (try? FileManager.default.contentsOfDirectory(atPath: metadataDirectory.path))?.count ?? 0
+
             let process: Process = .init()
             process.arguments = arguments
             await transformProcess(process)
-            
+
             try process.run()
-            
+
             process.waitUntilExit()
+
+            // If the metadata file count changed, new games were added or removed.
+            // Trigger a library refresh so they appear without requiring an app restart.
+            let countAfter = (try? FileManager.default.contentsOfDirectory(atPath: metadataDirectory.path))?.count ?? 0
+            if countAfter != countBefore {
+                log.notice("Metadata count changed (\(countBefore) → \(countAfter)), refreshing library")
+                try? await GameDataStore.shared.refreshFromStorefronts()
+            }
         }
     }
     
