@@ -111,6 +111,10 @@ import AppKit
         }
 
         lastLaunched = .now
+        // Persist immediately: setting lastLaunched mutates this Game in place,
+        // which does not trigger the library Set's didSet, so it would be lost
+        // on restart (same issue as the favourite toggle).
+        GameDataStore.shared.persistLibrary()
         try await _launch()
     }
 

@@ -70,9 +70,16 @@ import OSLog
     private var isRefreshingStorefronts = false
 
     var recent: Game? {
-        guard !library.allSatisfy({ $0.lastLaunched == nil }) else { return nil }
+        // Only consider games that are still installed — an uninstalled game's
+        // lastLaunched timestamp would otherwise keep it pinned to the home page.
+        let installed = library.filter { game in
+            if case .installed = game.installationState { return true }
+            return false
+        }
 
-        return library.max {
+        guard !installed.allSatisfy({ $0.lastLaunched == nil }) else { return nil }
+
+        return installed.max {
             $0.lastLaunched ?? .distantPast < $1.lastLaunched ?? .distantPast
         }
     }
