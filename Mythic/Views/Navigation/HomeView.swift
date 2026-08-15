@@ -23,6 +23,7 @@ struct HomeView: View {
     @AppStorage("gameCardSize") private var gameCardSize: Double = 200.0
     
     @State private var isImageEmpty = true
+    @State private var isImageEmptyPreMacOSTahoe: Bool = true
     
     @State private var isFavouritesSectionExpanded: Bool = true
     @State private var isContainersSectionExpanded: Bool = true
@@ -73,7 +74,17 @@ struct HomeView: View {
                                         .clipShape(.capsule)
                                 }
                             }
-                            .conditionalTransform(if: !isImageEmpty) { view in
+                            // Mirror GameCard: only tint the overlay white on
+                            // macOS < 26. Sheets inherit the environment of the
+                            // view presenting them, so applying white here on
+                            // macOS 26+ leaks into the settings sheet and renders
+                            // its form white-on-white in light mode.
+                            .onChange(of: isImageEmpty) {
+                                if #unavailable(macOS 26.0) {
+                                    isImageEmptyPreMacOSTahoe = $1
+                                }
+                            }
+                            .conditionalTransform(if: !isImageEmptyPreMacOSTahoe) { view in
                                 view
                                     .foregroundStyle(.white)
                             }

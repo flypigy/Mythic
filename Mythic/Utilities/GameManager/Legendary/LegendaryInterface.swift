@@ -557,19 +557,43 @@ final class Legendary {
                 // ONLY this game by image name — other games sharing the container
                 // are unaffected (unlike wineserver -k, which kills everything).
                 // onCancel must be synchronous, so the async work runs in a Task.
+                log.notice("launch: cancel requested for \(game.title, privacy: .public)")
                 process.terminate()
 
                 Task {
-                    guard let gameExecutablePath = try? Legendary.getGameInstallationData(gameID: game.id).executable,
-                          !gameExecutablePath.isEmpty else { return }
+                    let executablePath: String
+                    do {
+                        executablePath = try Legendary.getGameInstallationData(gameID: game.id).executable
+                    } catch {
+                        log.error("taskkill: no installation data for \(game.id): \(error.localizedDescription)")
+                        return
+                    }
+
+                    guard !executablePath.isEmpty else {
+                        log.error("taskkill: executable name empty for \(game.id)")
+                        return
+                    }
 
                     // taskkill /IM expects the bare image name, not a path
-                    let imageName = (gameExecutablePath as NSString).lastPathComponent
+                    let imageName = (executablePath as NSString).lastPathComponent
+                    log.notice("taskkill: stopping \(imageName, privacy: .public) in \(containerURL.path, privacy: .public)")
 
                     let killProcess = Process()
                     killProcess.arguments = ["taskkill", "/IM", imageName, "/F", "/T"]
                     Wine.transformProcess(killProcess, containerURL: containerURL)
-                    try? killProcess.run()
+
+                    let killProcessPipe = Pipe()
+                    killProcess.standardError = killProcessPipe
+                    killProcess.standardOutput = killProcessPipe
+
+                    do {
+                        try killProcess.run()
+                        killProcess.waitUntilExit()
+                        let output = String(data: killProcessPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                        log.notice("taskkill: exit \(killProcess.terminationStatus), output: \(output, privacy: .public)")
+                    } catch {
+                        log.error("taskkill: failed to run: \(error.localizedDescription)")
+                    }
                 }
             }
         }
