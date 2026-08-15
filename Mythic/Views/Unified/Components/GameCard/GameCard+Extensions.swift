@@ -339,6 +339,13 @@ extension GameCard {
                 .sheet(isPresented: $isGameSettingsSheetPresented) {
                     GameSettingsView(game: $game, isPresented: $isGameSettingsSheetPresented)
                         .frame(width: 700, height: 380)
+                        // Sheets inherit the environment from their presentation site.
+                        // When presented from the Home hero, that includes the
+                        // .foregroundStyle(.white) applied over the image overlay, which
+                        // renders the form's labels white-on-white in light mode.
+                        // HierarchicalStyle (.primary) resolves relative to the inherited
+                        // hierarchy, so reset with explicit Colors instead.
+                        .foregroundStyle(Color.primary, Color.secondary)
                 }
                 .customTransform { view in
                     if #unavailable(macOS 26.0) {

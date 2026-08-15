@@ -560,13 +560,15 @@ final class Legendary {
                 process.terminate()
 
                 Task {
-                    guard let gameExecutableName = try? Legendary.getGameInstallationData(gameID: game.id).executable,
-                          !gameExecutableName.isEmpty else { return }
+                    guard let gameExecutablePath = try? Legendary.getGameInstallationData(gameID: game.id).executable,
+                          !gameExecutablePath.isEmpty else { return }
+
+                    // taskkill /IM expects the bare image name, not a path
+                    let imageName = (gameExecutablePath as NSString).lastPathComponent
 
                     let killProcess = Process()
-                    killProcess.arguments = ["taskkill", "/IM", gameExecutableName, "/F", "/T"]
-                    killProcess.environment = ["WINEPREFIX": containerURL.path(percentEncoded: false)]
-                    await transformProcess(killProcess)
+                    killProcess.arguments = ["taskkill", "/IM", imageName, "/F", "/T"]
+                    WineInterface.transformProcess(killProcess, containerURL: containerURL)
                     try? killProcess.run()
                 }
             }
