@@ -568,7 +568,7 @@ final class Legendary {
 
                     let killProcess = Process()
                     killProcess.arguments = ["taskkill", "/IM", imageName, "/F", "/T"]
-                    WineInterface.transformProcess(killProcess, containerURL: containerURL)
+                    Wine.transformProcess(killProcess, containerURL: containerURL)
                     try? killProcess.run()
                 }
             }
