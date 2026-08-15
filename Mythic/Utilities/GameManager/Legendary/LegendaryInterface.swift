@@ -556,16 +556,19 @@ final class Legendary {
                 // process alone leaves the game running. Use Wine's taskkill to stop
                 // ONLY this game by image name — other games sharing the container
                 // are unaffected (unlike wineserver -k, which kills everything).
+                // onCancel must be synchronous, so the async work runs in a Task.
                 process.terminate()
 
-                guard let gameExecutableName = try? Legendary.getGameInstallationData(gameID: game.id).executable,
-                      !gameExecutableName.isEmpty else { return }
+                Task {
+                    guard let gameExecutableName = try? Legendary.getGameInstallationData(gameID: game.id).executable,
+                          !gameExecutableName.isEmpty else { return }
 
-                let killProcess = Process()
-                killProcess.arguments = ["taskkill", "/IM", gameExecutableName, "/F", "/T"]
-                killProcess.environment = ["WINEPREFIX": containerURL.path(percentEncoded: false)]
-                try? await transformProcess(killProcess)
-                try? killProcess.run()
+                    let killProcess = Process()
+                    killProcess.arguments = ["taskkill", "/IM", gameExecutableName, "/F", "/T"]
+                    killProcess.environment = ["WINEPREFIX": containerURL.path(percentEncoded: false)]
+                    await transformProcess(killProcess)
+                    try? killProcess.run()
+                }
             }
         }
 
