@@ -222,6 +222,12 @@ final class Wine { // TODO: https://forum.winehq.org/viewtopic.php?t=15416
         let container = try container ?? getContainerObject(at: containerURL)
         var environmentVariables: [String: String] = [:]
 
+        // Point Wine at our engine's wineserver. The wine64 wrapper re-exports this,
+        // but game processes spawned via legendary need it too, or wineloader falls
+        // back to its compiled-in default (the original CrossOver path), which is
+        // Hardened-Runtime signed and blocks memory editors like Bit Slicer.
+        environmentVariables["WINESERVER"] = Engine.directory.appending(path: "wine/bin/wineserver").path
+
         environmentVariables["WINEMSYNC"] = container.settings.msync.numericalValue.description
         environmentVariables["ROSETTA_ADVERTISE_AVX"] = container.settings.avx2.numericalValue.description
 

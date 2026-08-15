@@ -549,13 +549,23 @@ final class Legendary {
             
             try await withTaskCancellationHandler {
                 try process.run()
-                
+
                 try handleCLIErrorOutput(fromStandardErrorPipe: processStandardErrorPipe)
             } onCancel: {
-                // FIXME: legendary will spawn wine completely detached from the cli itself
-                // FIXME: because of this, terminating the process used to launch it will NOT
-                // FIXME: terminate the wine subprocess.. this is a KNOWN ISSUE
+                // legendary spawns wine detached from the CLI, so terminating this
+                // process alone leaves the game running. Use Wine's taskkill to stop
+                // ONLY this game by image name — other games sharing the container
+                // are unaffected (unlike wineserver -k, which kills everything).
                 process.terminate()
+
+                guard let gameExecutableName = try? Legendary.getGameInstallationData(gameID: game.id).executable,
+                      !gameExecutableName.isEmpty else { return }
+
+                let killProcess = Process()
+                killProcess.arguments = ["taskkill", "/IM", gameExecutableName, "/F", "/T"]
+                killProcess.environment = ["WINEPREFIX": containerURL.path(percentEncoded: false)]
+                try? await transformProcess(killProcess)
+                try? killProcess.run()
             }
         }
 

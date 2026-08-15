@@ -247,6 +247,10 @@ struct GameSettingsView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        // Reset inherited foreground style — when presented from the Home hero image,
+        // the presenter applies .foregroundStyle(.white) over its content and that
+        // environment propagates into this sheet, making light-mode text unreadable.
+        .foregroundStyle(.primary)
 
         bottomBar
     }
