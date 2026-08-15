@@ -580,13 +580,19 @@ final class Legendary {
 
                     let killProcess = Process()
                     killProcess.arguments = ["taskkill", "/IM", imageName, "/F", "/T"]
-                    Wine.transformProcess(killProcess, containerURL: containerURL)
-
-                    let killProcessPipe = Pipe()
-                    killProcess.standardError = killProcessPipe
-                    killProcess.standardOutput = killProcessPipe
 
                     do {
+                        // The running wineserver was started with WINEMSYNC/AVX flags
+                        // (see assembleEnvironmentVariables); a wine client without
+                        // them is refused: "Server is running with WINEMSYNC but
+                        // this process is not".
+                        killProcess.environment = try Wine.assembleEnvironmentVariables(forContainerAtURL: containerURL)
+                        Wine.transformProcess(killProcess, containerURL: containerURL)
+
+                        let killProcessPipe = Pipe()
+                        killProcess.standardError = killProcessPipe
+                        killProcess.standardOutput = killProcessPipe
+
                         try killProcess.run()
                         killProcess.waitUntilExit()
                         let output = String(data: killProcessPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
