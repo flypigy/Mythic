@@ -30,7 +30,9 @@ struct GameImageCard: View {
     var body: some View {
         GeometryReader { geometry in
             if let url = url {
-                AsyncImage(url: url) { phase in
+                // AsyncImage latches a "cancelled" failure when lazy grids recycle
+                // views mid-download; this cached variant restarts on reappear.
+                CachedAsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
                         Rectangle()
