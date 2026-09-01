@@ -84,7 +84,7 @@ actor RemoteImageCache {
 
         let (data, _) = try await URLSession.shared.data(from: url)
         guard let image = NSImage(data: data) else {
-            throw CocoaError(.coderReadCorrupt, userInfo: [.localizedDescriptionKey: "Received invalid image data."])
+            throw CocoaError(.coderReadCorrupt, userInfo: [NSLocalizedDescriptionKey: "Received invalid image data."])
         }
 
         memoryCache.setObject(image, forKey: url as NSURL)
