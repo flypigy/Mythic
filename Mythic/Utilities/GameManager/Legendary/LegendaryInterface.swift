@@ -801,6 +801,10 @@ final class Legendary {
 
     // TODO: refactor
     /// Create an asynchronous task to update Legendary's stored metadata.
+    ///
+    /// Sync attempts a direct connection first; on failure it falls back to the
+    /// proxy configured in the user's shell environment (e.g. `https_proxy` in
+    /// `.zshrc`), since GUI apps don't inherit shell environment variables.
     static func updateMetadata(forced: Bool = true) async {
         guard await !GameListViewModel.shared.isUpdatingLibrary else { return }
         var arguments: [String] = ["list"]
@@ -809,6 +813,7 @@ final class Legendary {
         Task {
             await MainActor.run {
                 GameListViewModel.shared.isUpdatingLibrary = true
+                GameDataStore.shared.epicSyncState = .syncing
             }
 
             defer {
@@ -821,21 +826,92 @@ final class Legendary {
             let metadataDirectory = configurationFolder.appending(path: "metadata")
             let countBefore = (try? FileManager.default.contentsOfDirectory(atPath: metadataDirectory.path))?.count ?? 0
 
-            let process: Process = .init()
-            process.arguments = arguments
-            await transformProcess(process)
+            // Attempt 1: direct connection.
+            var succeeded = await runLegendaryList(arguments: arguments)
 
-            try process.run()
-
-            process.waitUntilExit()
+            // Attempt 2: fall back to the user's shell proxy.
+            if !succeeded {
+                let proxyEnvironment = await shellProxyEnvironment()
+                if !proxyEnvironment.isEmpty {
+                    log.notice("Direct Epic sync failed; retrying with shell proxy")
+                    succeeded = await runLegendaryList(arguments: arguments, additionalEnvironment: proxyEnvironment)
+                }
+            }
 
             // If the metadata file count changed, new games were added or removed.
             // Trigger a library refresh so they appear without requiring an app restart.
-            let countAfter = (try? FileManager.default.contentsOfDirectory(atPath: metadataDirectory.path))?.count ?? 0
-            if countAfter != countBefore {
-                log.notice("Metadata count changed (\(countBefore) → \(countAfter)), refreshing library")
-                try? await GameDataStore.shared.refreshFromStorefronts()
+            if succeeded {
+                let countAfter = (try? FileManager.default.contentsOfDirectory(atPath: metadataDirectory.path))?.count ?? 0
+                if countAfter != countBefore {
+                    log.notice("Metadata count changed (\(countBefore) → \(countAfter)), refreshing library")
+                    try? await GameDataStore.shared.refreshFromStorefronts()
+                }
             }
+
+            await MainActor.run {
+                GameDataStore.shared.setSyncState(succeeded ? .success : .failed)
+            }
+        }
+    }
+
+    /// Run `legendary list` to completion, returning whether it exited successfully.
+    /// - Note: blocking; call from a background context.
+    private static func runLegendaryList(arguments: [String], additionalEnvironment: [String: String] = [:]) async -> Bool {
+        let process: Process = .init()
+        process.arguments = arguments
+        // transformProcess merges pre-set environment variables with its own.
+        process.environment = additionalEnvironment
+        await transformProcess(process)
+
+        do {
+            try process.run()
+        } catch {
+            log.error("Failed to launch legendary for metadata sync: \(error.localizedDescription)")
+            return false
+        }
+
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
+
+    /// GUI apps launched from Dock/Finder don't inherit the user's shell
+    /// environment, so query a login+interactive zsh for the proxy variables the
+    /// user configured in their dotfiles (e.g. `https_proxy` in `.zshrc`).
+    private static func shellProxyEnvironment() async -> [String: String] {
+        let process: Process = .init()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-ic", "printf '%s\\n' \"$https_proxy\""]
+        process.standardError = FileHandle.nullDevice
+
+        let pipe: Pipe = .init()
+        process.standardOutput = pipe
+
+        do {
+            try process.run()
+
+            // .zshrc may be slow (nvm etc.) — don't hang the sync on it.
+            let deadline = Date().addingTimeInterval(5)
+            while process.isRunning && Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            if process.isRunning { process.terminate() }
+
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            guard let proxy = output
+                .split(separator: "\n")
+                .reversed()
+                .compactMap({ String($0) })
+                .first(where: { $0.hasPrefix("http") })?
+                .trimmingCharacters(in: .whitespaces)
+            else { return [:] }
+
+            return [
+                "HTTPS_PROXY": proxy, "https_proxy": proxy,
+                "HTTP_PROXY": proxy, "http_proxy": proxy,
+            ]
+        } catch {
+            log.error("Unable to read proxy from user's shell: \(error.localizedDescription)")
+            return [:]
         }
     }
     

@@ -23,7 +23,12 @@ struct LibraryView: View {
     var body: some View {
         GameListView()
             .navigationTitle("Library")
-        
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if gameDataStore.epicSyncState != .idle {
+                    syncStateBar
+                }
+            }
+
             .toolbar {
                 ToolbarItem(placement: .status) {
                     if gameListViewModel.isUpdatingLibrary {
@@ -33,7 +38,7 @@ struct LibraryView: View {
                             .padding(10)
                     }
                 }
-                
+
                 ToolbarItem(placement: .automatic) {
                     Button {
                         isGameImportSheetPresented = true
@@ -42,10 +47,13 @@ struct LibraryView: View {
                     }
                     .help("Import a game")
                 }
-                
+
                 ToolbarItem(placement: .automatic) {
                     Button("Force-refresh", systemImage: "arrow.clockwise") {
-                        Task(priority: .userInitiated, operation: { try? await gameDataStore.refreshFromStorefronts() })
+                        // Full network sync (falls back to the user's shell proxy on
+                        // direct-connection failure); also serves as the retry
+                        // entry point for a failed sync shown in the status bar.
+                        Task(priority: .userInitiated, operation: { await Legendary.updateMetadata(forced: true) })
                     }
                     .help("Force a re-evaluation of your library contents.")
                 }
@@ -124,6 +132,38 @@ struct LibraryView: View {
                 }
             }
         )
+    }
+}
+
+private extension LibraryView {
+    /// Status bar for the Epic games-list sync. Visible for the whole duration
+    /// of a sync; `success`/`failed` auto-dismiss back to `idle` after 5 seconds
+    /// (handled by `GameDataStore.setSyncState`).
+    @ViewBuilder
+    var syncStateBar: some View {
+        HStack(spacing: 6) {
+            switch gameDataStore.epicSyncState {
+            case .idle:
+                EmptyView()
+            case .syncing:
+                ProgressView()
+                    .controlSize(.small)
+                Text("Updating Epic games list…")
+                    .foregroundStyle(.secondary)
+            case .success:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("Epic games list updated.")
+            case .failed:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                Text("Failed to update Epic games list — use the toolbar refresh button to retry.")
+            }
+        }
+        .font(.callout)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(.quinary)
     }
 }
 

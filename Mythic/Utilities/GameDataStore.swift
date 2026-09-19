@@ -69,6 +69,27 @@ import OSLog
     @ObservationIgnored
     private var isRefreshingStorefronts = false
 
+    /// Outcome of the last Epic games-list sync, surfaced in Library's status bar.
+    var epicSyncState: EpicSyncState = .idle
+
+    @ObservationIgnored
+    private var syncStateDismissTask: Task<Void, Never>?
+
+    /// Set the sync state. `success`/`failed` auto-dismiss back to `idle` after
+    /// 5 seconds; `syncing` stays until replaced.
+    func setSyncState(_ state: EpicSyncState) {
+        syncStateDismissTask?.cancel()
+        syncStateDismissTask = nil
+        epicSyncState = state
+
+        guard state == .success || state == .failed else { return }
+        syncStateDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.epicSyncState = .idle
+        }
+    }
+
     var recent: Game? {
         // Only consider games that are still installed — an uninstalled game's
         // lastLaunched timestamp would otherwise keep it pinned to the home page.
@@ -164,4 +185,12 @@ import OSLog
         // TODO: others
         // if storefronts.contains(...) { ... }
     }
+}
+
+/// Outcome of Legendary's games-list sync (`Legendary.updateMetadata`).
+enum EpicSyncState {
+    case idle
+    case syncing
+    case success
+    case failed
 }
