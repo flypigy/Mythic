@@ -119,6 +119,7 @@ private struct ScrollOffsetPersistence: ViewModifier {
             } action: { _, newOffset in
                 // Throttle: geometry ticks fire continuously while scrolling.
                 if abs(newOffset - storedScrollOffset) > 2 {
+                    log.notice("scroll: save \(newOffset, privacy: .public) (was \(storedScrollOffset, privacy: .public))")
                     storedScrollOffset = newOffset
                 }
             }
@@ -160,6 +161,9 @@ private struct ScrollViewRestorer: NSViewRepresentable {
 
             if let scrollView = ancestor as? NSScrollView {
                 restoreHandler(scrollView)
+            } else {
+                Logger.custom(category: "ScrollRestore")
+                    .notice("probe: no NSScrollView found in superview chain")
             }
         }
     }
@@ -171,25 +175,33 @@ private struct ScrollViewRestorer: NSViewRepresentable {
             restoreTask?.cancel()
             guard target > 1 else { return }
             let targetPoint = CGPoint(x: 0, y: target)
+            let log = Logger.custom(category: "ScrollRestore")
 
             restoreTask = Task { @MainActor in
                 // Give the (re)created scroll view a beat to lay out.
                 try? await Task.sleep(for: .milliseconds(150))
 
+                // Tracks what WE last applied, to distinguish SwiftUI resets
+                // (back to 0 → retry) from the user scrolling (→ abort).
+                var lastApplied: Double = 0
+
                 for _ in 0..<20 {
                     guard !Task.isCancelled else { return }
 
-                    let current = scrollView.contentView.bounds.origin
-                    if abs(current.y - target) < 6 { return }   // latched
-                    if current.y > 6 { return }                 // user/system already moved it — never fight
-                    // documentView height is the scrollable content height;
-                    // NSScrollView.contentSize is just the viewport.
-                    guard let documentHeight = scrollView.documentView?.frame.height,
-                          documentHeight >= target
-                    else { continue }                           // content not laid out yet
+                    let current = Double(scrollView.contentView.bounds.origin.y)
+                    let documentHeight = Double(scrollView.documentView?.frame.height ?? 0)
+                    log.notice("restore: target=\(target, privacy: .public) current=\(current, privacy: .public) docHeight=\(documentHeight, privacy: .public)")
+
+                    if abs(current - target) < 6 { return }                    // latched
+                    if current > 6, abs(current - lastApplied) > 6 { return }  // user moved it — never fight
+                    guard documentHeight >= target else {                      // content not laid out yet
+                        try? await Task.sleep(for: .milliseconds(100))
+                        continue
+                    }
 
                     scrollView.contentView.scroll(to: targetPoint)
                     scrollView.reflectScrolledClipView(scrollView.contentView)
+                    lastApplied = target
                     try? await Task.sleep(for: .milliseconds(100))
                 }
             }
