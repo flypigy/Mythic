@@ -26,7 +26,7 @@ struct LibraryView: View {
     @CodableAppStorage("gameListLayout") var gameListLayout: GameListViewModel.Layout = .grid
 
     var body: some View {
-        GameListView(isActive: isActive)
+        GameListView()
             .navigationTitle(isActive ? "Library" : "")
             .safeAreaInset(edge: .top, spacing: 0) {
                 if gameDataStore.epicSyncState != .idle {

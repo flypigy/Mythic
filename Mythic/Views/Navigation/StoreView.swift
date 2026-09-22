@@ -128,62 +128,50 @@ struct StoreView: View {
     // MARK: - Exact game page resolution
 
     /// Resolves the pending game lookup (set when a library card was tapped):
-    /// queries Epic's own search APIs from inside the web view's page context
-    /// (bare URLSession requests hit Cloudflare) for the game's product page
-    /// slug, then navigates to it. On any failure the initial page (the
-    /// browse/search results) remains as a fallback.
+    /// once the browse/search results page has rendered, poll its DOM for the
+    /// first product link — the exact game page slug can't be guessed (modern
+    /// slugs carry a random suffix) and bare API calls hit Cloudflare.
+    /// Failure leaves the browse page visible as a fallback.
     @MainActor
     private func resolvePendingGameLookup() async {
-        guard let title = ViewRouter.shared.pendingGameLookup,
-              let webView = WebView.retainedWebView else { return }
+        guard let title = ViewRouter.shared.pendingGameLookup?.lowercased(),
+              let webView = WebView.retainedWebView,
+              webView.url?.path.contains("/browse") == true else { return }
         defer { ViewRouter.shared.pendingGameLookup = nil }
 
-        // 1. Autocomplete search for the title → first offer's ids.
-        let searchVariables: [String: Any] = [
-            "allowCountries": "CN",
-            "category": "games/edition/base|bundles/games|games/edition|editors|addons|games/demo|software/edition/base|games/experience|subscription",
-            "count": 5,
-            "country": "CN",
-            "keywords": title,
-            "locale": "en-US",
-            "sortBy": NSNull(),
-            "sortDir": "DESC",
-        ]
-        guard let search = await StoreSlugResolver.runPersistedQuery(
-            operationName: "primarySearchAutocomplete",
-            variables: searchVariables,
-            sha256Hash: "be4fe909f9a35f9704db7fed06fc4a47fc798ec0a6cbfa24d737aec2465904fa",
-            in: webView
-        ) else { return }
+        // Wait for the SPA to render results (up to ~8s), then take the first
+        // product link, preferring one whose text matches the title.
+        let script = """
+        (function () {
+            const title = \(Self.javaScriptString(title));
+            const links = [...document.querySelectorAll('a[href*="/p/"]')];
+            if (!links.length) return null;
+            const match = links.find(a => a.textContent.toLowerCase().includes(title));
+            return (match ?? links[0]).getAttribute('href');
+        })()
+        """
 
-        guard
-            let elements = StoreSlugResolver.json(search, path: ["data", "Catalog", "searchStore", "elements"]) as? [[String: Any]],
-            let firstOffer = elements.first,
-            let offerID = firstOffer["offerId"] as? String,
-            let sandboxID = firstOffer["sandboxId"] as? String
-        else { return }
+        var href: String?
+        for _ in 0..<16 {
+            if let result = try? await webView.evaluateJavaScript(script), let found = result as? String {
+                href = found
+                break
+            }
+            try? await Task.sleep(for: .seconds(0.5))
+        }
 
-        // 2. Offer details → the product page slug.
-        let offerVariables: [String: Any] = [
-            "locale": "en-US",
-            "country": "CN",
-            "offerId": offerID,
-            "sandboxId": sandboxID,
-        ]
-        guard let offer = await StoreSlugResolver.runPersistedQuery(
-            operationName: "getCatalogOffer",
-            variables: offerVariables,
-            sha256Hash: "0bd79d7aaf89de3693abb813eec8b664321fab84037cbb968730631c8afe9a9d",
-            in: webView
-        ) else { return }
-
-        guard
-            let pageSlug = StoreSlugResolver.json(offer, path: ["data", "Catalog", "catalogOffer", "catalogNs", "pageSlug"]) as? String,
-            !pageSlug.isEmpty,
-            let target = URL(string: "https://store.epicgames.com/p/\(pageSlug)")
-        else { return }
+        guard let href, href.hasPrefix("/p/"),
+              let target = URL(string: "https://store.epicgames.com" + href) else { return }
 
         url = target
+    }
+
+    private static func javaScriptString(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: " ")
+        return "\"\(escaped)\""
     }
 }
 
