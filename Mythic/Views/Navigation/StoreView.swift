@@ -7,6 +7,7 @@
 
 // Copyright © 2023-2025 vapidinfinity
 
+import CFNetwork
 import SwiftUI
 import SwordRPC
 import WebKit
@@ -139,18 +140,26 @@ struct StoreView: View {
     /// Any failure leaves the browse/search page visible.
     @MainActor
     private func resolvePendingGameLookup() async {
-        guard ViewRouter.shared.pendingGameLookup != nil
-                || ViewRouter.shared.pendingStoreNamespace != nil,
-              let webView = WebView.retainedWebView,
-              webView.url?.path.contains("/browse") == true else { return }
+        // Always clear the pending state, whichever way this resolves, so it
+        // can never leak into a later page load.
         defer {
             ViewRouter.shared.pendingStoreNamespace = nil
             ViewRouter.shared.pendingGameLookup = nil
         }
 
+        guard ViewRouter.shared.pendingGameLookup != nil
+                || ViewRouter.shared.pendingStoreNamespace != nil,
+              let webView = WebView.retainedWebView,
+              webView.url?.path.contains("/browse") == true else { return }
+
+        // A newer card tap (beginNavigation) supersedes whatever this
+        // resolution would navigate to.
+        let generation = ViewRouter.shared.navigationGeneration
+
         if let namespace = ViewRouter.shared.pendingStoreNamespace,
            let slug = await StoreSlugResolver.productSlug(namespace: namespace),
            let target = URL(string: "https://store.epicgames.com/p/\(slug)") {
+            guard generation == ViewRouter.shared.navigationGeneration else { return }
             url = target
             return
         }
@@ -159,6 +168,7 @@ struct StoreView: View {
            let href = await StoreSlugResolver.scrapeFirstProductLink(matching: title, in: webView),
            href.hasPrefix("/p/"),
            let target = URL(string: "https://store.epicgames.com" + href) {
+            guard generation == ViewRouter.shared.navigationGeneration else { return }
             url = target
         }
     }
@@ -168,10 +178,23 @@ struct StoreView: View {
 enum StoreSlugResolver {
     /// Maps an Epic catalog namespace to its product-home page slug via the
     /// launcher GraphQL endpoint (Heroic's approach — no Cloudflare).
+    /// Direct connections to Epic endpoints are intermittently reset (same
+    /// interference the library sync works around), so on failure the query
+    /// retries through the user's shell proxy (e.g. Clash on :7890).
     static func productSlug(namespace: String) async -> String? {
+        if let slug = await query(namespace: namespace, proxy: nil) { return slug }
+
+        let proxyEnvironment = await Legendary.shellProxyEnvironment()
+        if let proxy = proxyEnvironment["HTTPS_PROXY"] {
+            return await query(namespace: namespace, proxy: proxy)
+        }
+        return nil
+    }
+
+    private static func query(namespace: String, proxy: String?) async -> String? {
         var request = URLRequest(url: URL(string: "https://launcher.store.epicgames.com/graphql")!)
         request.httpMethod = "POST"
-        request.timeoutInterval = 10
+        request.timeoutInterval = 4
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) EpicGamesLauncher",
@@ -180,8 +203,27 @@ enum StoreSlugResolver {
         let query = "{ Catalog { catalogNs(namespace: \"\(namespace)\") { mappings(pageType: \"productHome\") { pageSlug pageType } } } }"
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": query])
 
+        let session: URLSession = {
+            guard let proxy,
+                  let proxyURL = URL(string: proxy),
+                  let host = proxyURL.host,
+                  let port = proxyURL.port
+            else { return .shared }
+
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.connectionProxyDictionary = [
+                kCFNetworkProxiesHTTPEnable: true,
+                kCFNetworkProxiesHTTPProxy: host,
+                kCFNetworkProxiesHTTPPort: port,
+                kCFNetworkProxiesHTTPSEnable: true,
+                kCFNetworkProxiesHTTPSProxy: host,
+                kCFNetworkProxiesHTTPSPort: port,
+            ]
+            return URLSession(configuration: configuration)
+        }()
+
         guard
-            let (data, _) = try? await URLSession.shared.data(for: request),
+            let (data, _) = try? await session.data(for: request),
             let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let mappings = json(response, path: ["data", "Catalog", "catalogNs", "mappings"]) as? [[String: Any]]
         else { return nil }

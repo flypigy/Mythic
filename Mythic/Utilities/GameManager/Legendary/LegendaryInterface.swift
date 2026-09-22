@@ -877,7 +877,7 @@ final class Legendary {
     /// GUI apps launched from Dock/Finder don't inherit the user's shell
     /// environment, so query a login+interactive zsh for the proxy variables the
     /// user configured in their dotfiles (e.g. `https_proxy` in `.zshrc`).
-    private static func shellProxyEnvironment() async -> [String: String] {
+    static func shellProxyEnvironment() async -> [String: String] {
         let process: Process = .init()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-ic", "printf '%s\\n' \"$https_proxy\""]

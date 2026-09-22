@@ -48,6 +48,18 @@ final class ViewRouter: ObservableObject {
         return pendingStoreURL
     }
 
+    /// Monotonic navigation token. Tapped cards call beginNavigation() before
+    /// their async slug resolution; anything finishing later for an older
+    /// token must not navigate — this is what made an earlier click's slow
+    /// resolution "win" over the user's latest click (wrong-game jumps).
+    private(set) var navigationGeneration = 0
+
+    @discardableResult
+    func beginNavigation() -> Int {
+        navigationGeneration += 1
+        return navigationGeneration
+    }
+
     /// Point the Store web view at `url` and switch to the Store page.
     /// - Parameter namespace: the game's Epic catalog namespace (from legendary
     ///   metadata). When set, StoreView resolves the exact product page with
