@@ -92,23 +92,24 @@ struct GameListView: View {
     }
 }
 
-/// Persists a ScrollView's content offset (Apple's geometry save/restore
-/// recipe) so the list returns to where the user left it after the view is
-/// torn down by page switches. Geometry-based rather than item-id-based: the
-/// id-binding variant never reported scrolling in this view hierarchy, so
-/// nothing was ever saved (verified via the persisted key staying unset).
+/// Persists a ScrollView's content offset (via onScrollGeometryChange) and
+/// restores it by driving the underlying AppKit NSScrollView directly —
+/// SwiftUI-level restores (id bindings, ScrollPosition(point:)) proved
+/// ineffective with lazy grid content on macOS, while the offset itself saves
+/// fine (verified in UserDefaults).
 @available(macOS 15.0, *)
 private struct ScrollOffsetPersistence: ViewModifier {
-    /// Library item count; the restore re-runs when the (async-loaded) data
-    /// populates, restoring earlier would silently no-op against an empty list.
+    /// Library item count; changes when the (async-loaded) data populates.
     var itemCount: Int
 
-    @State private var scrollPos = ScrollPosition()
     @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
 
     func body(content: Content) -> some View {
         content
-            .scrollPosition($scrollPos)
+            .background(
+                ScrollViewRestorer(targetOffset: storedScrollOffset)
+                    .frame(width: 0, height: 0)
+            )
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top
             } action: { _, newOffset in
@@ -117,19 +118,74 @@ private struct ScrollOffsetPersistence: ViewModifier {
                     storedScrollOffset = newOffset
                 }
             }
-            .task(id: itemCount) {
-                // Restore the persisted offset after the view is recreated.
-                // Retried briefly until it latches (within 6pt); stops once
-                // positioned so it never fights the user's own scrolling.
-                guard storedScrollOffset > 1 else { return }
+    }
+}
+
+/// Locates the enclosing AppKit NSScrollView (the SwiftUI ScrollView's
+/// backing view) and scrolls it to the persisted offset.
+private struct ScrollViewRestorer: NSViewRepresentable {
+    var targetOffset: Double
+
+    func makeNSView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.restoreHandler = { scrollView in
+            context.coordinator.restore(scrollView, to: targetOffset)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: ProbeView, context: Context) {
+        nsView.restoreHandler = { scrollView in
+            context.coordinator.restore(scrollView, to: targetOffset)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class ProbeView: NSView {
+        var restoreHandler: ((NSScrollView) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil, let restoreHandler else { return }
+
+            var ancestor: NSView? = superview
+            while let current = ancestor, !(current is NSScrollView) {
+                ancestor = current.superview
+            }
+
+            if let scrollView = ancestor as? NSScrollView {
+                restoreHandler(scrollView)
+            }
+        }
+    }
+
+    final class Coordinator {
+        private var restoreTask: Task<Void, Never>?
+
+        func restore(_ scrollView: NSScrollView, to target: Double) {
+            restoreTask?.cancel()
+            guard target > 1 else { return }
+            let targetPoint = CGPoint(x: 0, y: target)
+
+            restoreTask = Task { @MainActor in
+                // Give the (re)created scroll view a beat to lay out.
                 try? await Task.sleep(for: .milliseconds(150))
 
-                for _ in 0..<8 {
-                    if abs((scrollPos.point?.y ?? 0) - storedScrollOffset) < 6 { break }
-                    scrollPos = ScrollPosition(point: CGPoint(x: 0, y: storedScrollOffset))
-                    try? await Task.sleep(for: .milliseconds(120))
+                for _ in 0..<20 {
+                    guard !Task.isCancelled else { return }
+
+                    let current = scrollView.contentView.bounds.origin
+                    if abs(current.y - target) < 6 { return }   // latched
+                    if current.y > 6 { return }                 // user/system already moved it — never fight
+                    if scrollView.contentSize.height < target { continue } // content not laid out yet
+
+                    scrollView.contentView.scroll(to: targetPoint)
+                    scrollView.reflectScrolledClipView(scrollView.contentView)
+                    try? await Task.sleep(for: .milliseconds(100))
                 }
             }
+        }
     }
 }
 
