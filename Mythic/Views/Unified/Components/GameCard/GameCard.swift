@@ -31,8 +31,21 @@ struct GameCard: View {
                 let gameID = game.id
                 Task(priority: .userInitiated) {
                     // Catalog namespace comes from legendary's local metadata
-                    // (one small file read) and enables the exact-slug lookup.
+                    // (one small file read). Resolve the slug up front — the
+                    // launcher GraphQL endpoint needs no web view — so the
+                    // Store opens straight on the game's page with no
+                    // intermediate search-results hop.
                     let namespace = (try? Legendary.getGameMetadata(gameID: gameID))?.storeMetadata.namespace
+
+                    if let namespace,
+                       let slug = await StoreSlugResolver.productSlug(namespace: namespace),
+                       let target = URL(string: "https://store.epicgames.com/p/\(slug)") {
+                        ViewRouter.shared.openStore(url: target)
+                        return
+                    }
+
+                    // Fallback: open the search page; its DOM scrape retries
+                    // the resolution there.
                     let query = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title
                     ViewRouter.shared.openStore(
                         url: .init(string: "https://store.epicgames.com/browse?q=\(query)&sortBy=relevancy&sortDir=DESC")!,
