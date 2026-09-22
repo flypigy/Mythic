@@ -13,11 +13,6 @@ import SwordRPC
 import WebKit
 
 struct StoreView: View {
-    /// Whether this is the currently-visible page. ContentView keeps this view
-    /// alive in a ZStack (preserving the web view's page); the hidden copy
-    /// suppresses its toolbar items and title.
-    var isActive: Bool = true
-
     @State private var canGoBack = false
     @State private var canGoForward = false
     // Initial value: the retained web view's live URL (mirrored by
@@ -47,7 +42,7 @@ struct StoreView: View {
             }
         )
 
-        .navigationTitle(isActive ? "Store" : "")
+        .navigationTitle("Store")
 
         // Deep links: consume (and clear) the pending link when this view
         // appears; onReceive covers links arriving while already alive.
@@ -79,7 +74,6 @@ struct StoreView: View {
         }
 
         .toolbar {
-            if isActive {
             ToolbarItem(placement: .confirmationAction) {
                 Button {
                     WebView.retainedWebView?.goBack()
@@ -121,7 +115,6 @@ struct StoreView: View {
                     Image(systemName: "arrow.up.forward")
                 }
                 .help("Open the store's front page")
-            }
             }
         }
     }

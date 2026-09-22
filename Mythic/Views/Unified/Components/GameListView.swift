@@ -19,6 +19,11 @@ struct GameListView: View {
     
     @State private var isGameImportViewPresented: Bool = false
 
+    /// Top-of-viewport game id, persisted so the list returns to where the
+    /// user left it after the view is torn down by page switches.
+    @State private var scrollPosition: String?
+    @AppStorage("gameListScrollAnchor") private var storedScrollAnchor: String = ""
+
     var body: some View {
         VStack {
             if gameDataStore.library.isEmpty {
@@ -68,6 +73,26 @@ struct GameListView: View {
                         }
                         .padding()
                     }
+                }
+                .scrollPosition(id: $scrollPosition, anchor: .top)
+                .onChange(of: scrollPosition) {
+                    // Save continuously (not on disappear) — the position can
+                    // lag at teardown time.
+                    if let scrollPosition {
+                        storedScrollAnchor = scrollPosition
+                    }
+                }
+                .task(id: viewModel.sortedLibrary.count) {
+                    // Restore once the library data is present. Keying on the
+                    // count re-runs this when the (async-loaded) library
+                    // populates — restoring earlier, against an empty list,
+                    // silently no-ops and loses the position.
+                    guard scrollPosition == nil, !storedScrollAnchor.isEmpty,
+                          viewModel.sortedLibrary.contains(where: { $0.id == storedScrollAnchor })
+                    else { return }
+
+                    try? await Task.sleep(for: .milliseconds(150))
+                    scrollPosition = storedScrollAnchor
                 }
                 .searchable(text: $viewModel.searchString,
                             tokens: $viewModel.searchTokens,

@@ -197,29 +197,24 @@ struct ContentView: View {
                     EmptyView()
                 }
             }, detail: {
-                // Library stays alive across page switches so its scroll
-                // position survives; inactive copies render at opacity 0 with
-                // hit-testing disabled.
+                // Plain on-demand pages. Keep-alive tricks (opacity 0 layers)
+                // are abandoned: cells laid out while their ancestor was at
+                // opacity 0 end up with permanently dead AppKit button
+                // hit-testing on macOS, and an invisible WKWebView stacked
+                // over pages swallowed clicks outright.
                 //
-                // Store must NOT be kept alive: its WKWebView doesn't fully
-                // respect allowsHitTesting(false) on macOS, and an invisible
-                // retained web view stacked over the Library ate every card
-                // button click. Store state is preserved anyway — the web view
-                // itself is retained (see WebView.retainedWebView) and
-                // StoreView restores its page when recreated.
-                ZStack {
-                    LibraryView(isActive: router.selectedPage == .library)
-                        .opacity(router.selectedPage == .library ? 1 : 0)
-                        .allowsHitTesting(router.selectedPage == .library)
-
-                    switch router.selectedPage {
-                    case .home, .none: HomeView()
-                    case .store: StoreView()
-                    case .containers: ContainersView()
-                    case .accounts: AccountsView()
-                    case .operations: OperationsView()
-                    case .library: EmptyView()
-                    }
+                // State preservation without keep-alive:
+                // - Store: the WKWebView is retained (WebView.retainedWebView)
+                //   and StoreView restores its page when recreated.
+                // - Library: scroll position is persisted (GameListView) and
+                //   restored once the data is present.
+                switch router.selectedPage {
+                case .home, .none: HomeView()
+                case .library: LibraryView()
+                case .store: StoreView()
+                case .containers: ContainersView()
+                case .accounts: AccountsView()
+                case .operations: OperationsView()
                 }
             }
         )
