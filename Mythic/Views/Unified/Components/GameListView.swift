@@ -50,10 +50,7 @@ struct GameListView: View {
                     GameImportView(isPresented: $isGameImportViewPresented)
                 }
             } else {
-                // NOTE: no conditional modifiers around this section — an
-                // if/else branch swap recreates the ScrollView and would
-                // destroy the scroll position this kept-alive view exists to
-                // preserve.
+                ScrollViewReader { proxy in
                 ScrollView(.vertical) {
                     // FIXME: sortedLibrary should not be appended to or it'll cause overwrites.
                     // FIXME: a dirtyfix is to directly set to the underlying library
@@ -62,6 +59,7 @@ struct GameListView: View {
                         LazyVGrid(columns: [.init(.adaptive(minimum: gameCardSize))]) {
                             ForEach(viewModel.sortedLibrary) { game in
                                 GameCard(game: .constant(game))
+                                    .id(game.id)
                             }
                         }
                         .padding()
@@ -69,6 +67,7 @@ struct GameListView: View {
                         LazyVStack {
                             ForEach(viewModel.sortedLibrary) { game in
                                 ListGameCard(game: .constant(game))
+                                    .id(game.id)
                             }
                         }
                         .padding()
@@ -83,16 +82,24 @@ struct GameListView: View {
                     }
                 }
                 .task(id: viewModel.sortedLibrary.count) {
-                    // Restore once the library data is present. Keying on the
-                    // count re-runs this when the (async-loaded) library
-                    // populates — restoring earlier, against an empty list,
-                    // silently no-ops and loses the position.
-                    guard scrollPosition == nil, !storedScrollAnchor.isEmpty,
+                    // Restore the persisted position after the view is
+                    // recreated by a page switch. Writing the scrollPosition
+                    // binding alone proved unreliable with LazyVGrid on macOS,
+                    // so ScrollViewReader.scrollTo (designed for lazy
+                    // containers) drives the scroll and a short retry loop
+                    // re-attempts until the position latches. Only runs while
+                    // the position is unset, so it never yanks a list the
+                    // user is already scrolling.
+                    guard !storedScrollAnchor.isEmpty,
                           viewModel.sortedLibrary.contains(where: { $0.id == storedScrollAnchor })
                     else { return }
 
-                    try? await Task.sleep(for: .milliseconds(150))
-                    scrollPosition = storedScrollAnchor
+                    for _ in 0..<8 {
+                        guard scrollPosition == nil else { break }
+                        try? await Task.sleep(for: .milliseconds(120))
+                        proxy.scrollTo(storedScrollAnchor, anchor: .top)
+                        scrollPosition = storedScrollAnchor
+                    }
                 }
                 .searchable(text: $viewModel.searchString,
                             tokens: $viewModel.searchTokens,
@@ -110,6 +117,7 @@ struct GameListView: View {
                     case .favourited:
                         Text("Favourited")
                     }
+                }
                 }
             }
         }
