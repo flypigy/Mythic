@@ -87,6 +87,7 @@ struct ContainerListView: View {
             } message: { _ in
                 Text("This process cannot be undone.")
             }
+        } else if Wine.containerURLs.isEmpty {
             ContentUnavailableView(
                 "No containers are initialised. 😢",
                 systemImage: "cube.transparent",
@@ -95,7 +96,7 @@ struct ContainerListView: View {
                     You must create a container in order to launch a Windows® game.
                     """)
             )
-            
+
             Button {
                 isContainerCreationViewPresented = true
             } label: {
