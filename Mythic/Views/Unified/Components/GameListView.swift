@@ -108,6 +108,7 @@ struct GameListView: View {
 @available(macOS 15.0, *)
 private struct ScrollOffsetPersistence: ViewModifier {
     @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
+    private let log = Logger.custom(category: "ScrollRestore")
 
     func body(content: Content) -> some View {
         content
