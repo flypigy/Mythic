@@ -81,6 +81,17 @@ extension Game {
     }
 }
 
+extension Game.InstallationState {
+    /// Case-only ordering weight (installed = 1, uninstalled = 0). The
+    /// associated location/platform must NOT participate in ordering — two
+    /// installed games always share the same rank even though their
+    /// associated values differ.
+    var installationRank: Int {
+        if case .installed = self { return 1 }
+        return 0
+    }
+}
+
 extension Game.InstallationState: Comparable {
     static func < (lhs: Game.InstallationState, rhs: Game.InstallationState) -> Bool {
         switch (lhs, rhs) {

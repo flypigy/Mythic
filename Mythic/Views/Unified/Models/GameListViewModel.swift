@@ -44,9 +44,13 @@ import OSLog
         GameDataStore.shared.library
             .sorted { lhs, rhs in
                 if lhs.isOperating != rhs.isOperating { return lhs.isOperating }
-                if lhs.installationState != rhs.installationState {
-                    return lhs.installationState > rhs.installationState
-                }
+                // Compare the installed/uninstalled case only — InstallationState's
+                // Equatable includes the associated location, which differs for
+                // every installed game and would make the comparator inconsistent
+                // (unequal but unordered), producing undefined sort order.
+                let lhsRank = lhs.installationState.installationRank
+                let rhsRank = rhs.installationState.installationRank
+                if lhsRank != rhsRank { return lhsRank > rhsRank }
                 if lhs.title != rhs.title { return lhs.title < rhs.title }
                 return lhs.id < rhs.id
             }
