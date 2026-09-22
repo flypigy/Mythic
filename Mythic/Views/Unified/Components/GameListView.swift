@@ -48,28 +48,31 @@ struct GameListView: View {
                 ScrollView(.vertical) {
                     // FIXME: sortedLibrary should not be appended to or it'll cause overwrites.
                     // FIXME: a dirtyfix is to directly set to the underlying library
-                    switch layout {
-                    case .grid:
-                        LazyVGrid(columns: [.init(.adaptive(minimum: gameCardSize))]) {
-                            ForEach(viewModel.sortedLibrary) { game in
-                                GameCard(game: .constant(game))
-                                    .id(game.id)
+                    // The offset-persistence modifier attaches to the content
+                    // INSIDE the scroll view: the NSScrollView probe must sit
+                    // within the document view so walking superviews reaches
+                    // it (a background on the ScrollView itself is a sibling
+                    // branch and never does).
+                    Group {
+                        switch layout {
+                        case .grid:
+                            LazyVGrid(columns: [.init(.adaptive(minimum: gameCardSize))]) {
+                                ForEach(viewModel.sortedLibrary) { game in
+                                    GameCard(game: .constant(game))
+                                        .id(game.id)
+                                }
                             }
-                        }
-                        .padding()
-                    case .list:
-                        LazyVStack {
-                            ForEach(viewModel.sortedLibrary) { game in
-                                ListGameCard(game: .constant(game))
-                                    .id(game.id)
+                            .padding()
+                        case .list:
+                            LazyVStack {
+                                ForEach(viewModel.sortedLibrary) { game in
+                                    ListGameCard(game: .constant(game))
+                                        .id(game.id)
+                                }
                             }
+                            .padding()
                         }
-                        .padding()
                     }
-                    // Attached to the content INSIDE the scroll view: the
-                    // NSScrollView probe must sit within the document view so
-                    // walking superviews reaches it (a background on the
-                    // ScrollView itself is a sibling branch and never does).
                     .preservingScrollOffset()
                 }
                 .searchable(text: $viewModel.searchString,
