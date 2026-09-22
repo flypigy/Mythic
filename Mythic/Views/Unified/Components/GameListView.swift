@@ -76,6 +76,7 @@ struct GameListView: View {
                     }
                     .preservingScrollOffset()
                 }
+                .savingScrollOffset()
                 .searchable(text: $viewModel.searchString,
                             tokens: $viewModel.searchTokens,
                             suggestedTokens: .constant(viewModel.suggestedTokens),
@@ -105,10 +106,12 @@ struct GameListView: View {
 /// SwiftUI-level restores (id bindings, ScrollPosition(point:)) proved
 /// ineffective with lazy grid content on macOS, while the offset itself saves
 /// fine (verified in UserDefaults).
+/// Places the NSScrollView restore probe. Must be attached to content INSIDE
+/// the scroll view — the probe lives within the document view so walking
+/// superviews reaches the backing NSScrollView.
 @available(macOS 15.0, *)
 private struct ScrollOffsetPersistence: ViewModifier {
     @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
-    private let log = Logger.custom(category: "ScrollRestore")
 
     func body(content: Content) -> some View {
         content
@@ -116,6 +119,19 @@ private struct ScrollOffsetPersistence: ViewModifier {
                 ScrollViewRestorer(targetOffset: storedScrollOffset)
                     .frame(width: 0, height: 0)
             )
+    }
+}
+
+/// Saves the scroll offset. Must be attached to the ScrollView itself — an
+/// observer placed inside the (lazy) scroll content never fired (verified by
+/// the absence of any save log lines during user scrolling).
+@available(macOS 15.0, *)
+private struct ScrollOffsetSaver: ViewModifier {
+    @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
+    private let log = Logger.custom(category: "ScrollRestore")
+
+    func body(content: Content) -> some View {
+        content
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top
             } action: { _, newOffset in
@@ -212,13 +228,21 @@ private struct ScrollViewRestorer: NSViewRepresentable {
 }
 
 private extension View {
-    /// Scroll-offset persistence where supported; no-ops on macOS 14.
-    /// Attach to content INSIDE the scroll view (the probe must live within
-    /// the document view to find the backing NSScrollView).
+    /// Restore probe; attach to content INSIDE the scroll view.
     @ViewBuilder
     func preservingScrollOffset() -> some View {
         if #available(macOS 15.0, *) {
             modifier(ScrollOffsetPersistence())
+        } else {
+            self
+        }
+    }
+
+    /// Offset saving; attach to the ScrollView itself.
+    @ViewBuilder
+    func savingScrollOffset() -> some View {
+        if #available(macOS 15.0, *) {
+            modifier(ScrollOffsetSaver())
         } else {
             self
         }
