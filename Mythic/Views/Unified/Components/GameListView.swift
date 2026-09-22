@@ -19,15 +19,6 @@ struct GameListView: View {
     
     @State private var isGameImportViewPresented: Bool = false
 
-    /// Scroll offset (points from the scroll view's top, including content
-    /// insets), persisted so the list returns to where the user left it after
-    /// the view is torn down by page switches. Geometry-based rather than
-    /// item-id-based: the id-binding variant never reported scrolling in this
-    /// view hierarchy, so nothing was ever saved (verified via the persisted
-    /// key staying unset).
-    @State private var scrollPos = ScrollPosition()
-    @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
-
     var body: some View {
         VStack {
             if gameDataStore.library.isEmpty {
@@ -76,30 +67,7 @@ struct GameListView: View {
                         .padding()
                     }
                 }
-                .scrollPosition($scrollPos)
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    geometry.contentOffset.y + geometry.contentInsets.top
-                } action: { _, newOffset in
-                    // Throttle: geometry ticks fire continuously while scrolling.
-                    if abs(newOffset - storedScrollOffset) > 2 {
-                        storedScrollOffset = newOffset
-                    }
-                }
-                .task(id: viewModel.sortedLibrary.count) {
-                    // Restore the persisted offset after the view is recreated
-                    // by a page switch. Point-based restore (Apple's documented
-                    // save/restore recipe with onScrollGeometryChange), retried
-                    // briefly until it latches; only while the position is
-                    // still at the top, so it never fights the user.
-                    guard storedScrollOffset > 1 else { return }
-                    try? await Task.sleep(for: .milliseconds(150))
-
-                    for _ in 0..<8 {
-                        if abs((scrollPos.point?.y ?? 0) - storedScrollOffset) < 6 { break }
-                        scrollPos = ScrollPosition(point: CGPoint(x: 0, y: storedScrollOffset))
-                        try? await Task.sleep(for: .milliseconds(120))
-                    }
-                }
+                .preservingScrollOffset(itemCount: viewModel.sortedLibrary.count)
                 .searchable(text: $viewModel.searchString,
                             tokens: $viewModel.searchTokens,
                             suggestedTokens: .constant(viewModel.suggestedTokens),
@@ -123,7 +91,60 @@ struct GameListView: View {
         .animation(.default, value: viewModel.sortedLibrary)
     }
 }
-    
+
+/// Persists a ScrollView's content offset (Apple's geometry save/restore
+/// recipe) so the list returns to where the user left it after the view is
+/// torn down by page switches. Geometry-based rather than item-id-based: the
+/// id-binding variant never reported scrolling in this view hierarchy, so
+/// nothing was ever saved (verified via the persisted key staying unset).
+@available(macOS 15.0, *)
+private struct ScrollOffsetPersistence: ViewModifier {
+    /// Library item count; the restore re-runs when the (async-loaded) data
+    /// populates, restoring earlier would silently no-op against an empty list.
+    var itemCount: Int
+
+    @State private var scrollPos = ScrollPosition()
+    @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
+
+    func body(content: Content) -> some View {
+        content
+            .scrollPosition($scrollPos)
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top
+            } action: { _, newOffset in
+                // Throttle: geometry ticks fire continuously while scrolling.
+                if abs(newOffset - storedScrollOffset) > 2 {
+                    storedScrollOffset = newOffset
+                }
+            }
+            .task(id: itemCount) {
+                // Restore the persisted offset after the view is recreated.
+                // Retried briefly until it latches (within 6pt); stops once
+                // positioned so it never fights the user's own scrolling.
+                guard storedScrollOffset > 1 else { return }
+                try? await Task.sleep(for: .milliseconds(150))
+
+                for _ in 0..<8 {
+                    if abs((scrollPos.point?.y ?? 0) - storedScrollOffset) < 6 { break }
+                    scrollPos = ScrollPosition(point: CGPoint(x: 0, y: storedScrollOffset))
+                    try? await Task.sleep(for: .milliseconds(120))
+                }
+            }
+    }
+}
+
+private extension View {
+    /// Scroll-offset persistence where supported; no-ops on macOS 14.
+    @ViewBuilder
+    func preservingScrollOffset(itemCount: Int) -> some View {
+        if #available(macOS 15.0, *) {
+            modifier(ScrollOffsetPersistence(itemCount: itemCount))
+        } else {
+            self
+        }
+    }
+}
+
 #Preview {
     GameListView()
         .environmentObject(NetworkMonitor.shared)
