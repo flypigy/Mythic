@@ -60,6 +60,37 @@ final class ViewRouter: ObservableObject {
         return navigationGeneration
     }
 
+    /// Open the game's exact Epic store page (Heroic-style menu entry).
+    /// Resolves namespace → slug up front (with shell-proxy fallback), so the
+    /// Store opens straight on the product page; the browse search page is
+    /// the fallback when resolution fails.
+    func openStorePage(for game: Game) {
+        guard case .epicGames = game.storefront else { return }
+        let title = game.title
+        let gameID = game.id
+
+        Task(priority: .userInitiated) { @MainActor in
+            let generation = beginNavigation()
+            let namespace = (try? Legendary.getGameMetadata(gameID: gameID))?.storeMetadata.namespace
+
+            if let namespace,
+               let slug = await StoreSlugResolver.productSlug(namespace: namespace),
+               let target = URL(string: "https://store.epicgames.com/p/\(slug)") {
+                guard generation == navigationGeneration else { return }
+                openStore(url: target)
+                return
+            }
+
+            guard generation == navigationGeneration else { return }
+            let query = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title
+            openStore(
+                url: .init(string: "https://store.epicgames.com/browse?q=\(query)&sortBy=relevancy&sortDir=DESC")!,
+                namespace: namespace,
+                gameTitle: title
+            )
+        }
+    }
+
     /// Point the Store web view at `url` and switch to the Store page.
     /// - Parameter namespace: the game's Epic catalog namespace (from legendary
     ///   metadata). When set, StoreView resolves the exact product page with

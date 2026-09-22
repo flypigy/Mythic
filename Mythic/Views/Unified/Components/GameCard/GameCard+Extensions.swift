@@ -331,6 +331,17 @@ extension GameCard {
                     GameCard.Buttons.UpdateButton(game: $game, withLabel: true)
                     GameCard.Buttons.FavouriteButton(game: $game, withLabel: true)
                     GameCard.Buttons.DeleteButton(game: $game, withLabel: true, isUninstallSheetPresented: $isUninstallSheetPresented)
+
+                    // Heroic-style store entry: lives in the menu so it can
+                    // never compete with the card's own buttons for clicks
+                    // (a whole-card tap gesture hijacked them before).
+                    if case .epicGames = game.storefront {
+                        Button {
+                            ViewRouter.shared.openStorePage(for: game)
+                        } label: {
+                            Label("Store Page", systemImage: "bag")
+                        }
+                    }
                 } label: {
                     Button { } label: {
                         Image(systemName: "ellipsis")

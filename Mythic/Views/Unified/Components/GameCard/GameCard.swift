@@ -21,47 +21,6 @@ struct GameCard: View {
     var body: some View {
         GameImageCard(game: game, url: game.verticalImageURL, isImageEmpty: $isImageEmpty)
             .aspectRatio(3/4, contentMode: .fit)
-            // Epic games' covers open the store at this game's search results.
-            // /browse is the current search-results route (/search now renders
-            // a 404), and metadata carries no store slug — modern slugs have a
-            // random suffix (e.g. /p/brotato-ed4097) so guessing would 404.
-            .onTapGesture {
-                guard case .epicGames = game.storefront else { return }
-                let title = game.title
-                let gameID = game.id
-                Task(priority: .userInitiated) {
-                    // Claim this tap: any still-running resolution for an
-                    // earlier tap must not navigate once a newer tap begins.
-                    // (Slow epic-endpoint responses used to land late and
-                    // override the page the user's latest click asked for.)
-                    let generation = ViewRouter.shared.beginNavigation()
-
-                    // Catalog namespace comes from legendary's local metadata
-                    // (one small file read). Resolve the slug up front — the
-                    // launcher GraphQL endpoint needs no web view — so the
-                    // Store opens straight on the game's page with no
-                    // intermediate search-results hop.
-                    let namespace = (try? Legendary.getGameMetadata(gameID: gameID))?.storeMetadata.namespace
-
-                    if let namespace,
-                       let slug = await StoreSlugResolver.productSlug(namespace: namespace),
-                       let target = URL(string: "https://store.epicgames.com/p/\(slug)") {
-                        guard generation == ViewRouter.shared.navigationGeneration else { return }
-                        ViewRouter.shared.openStore(url: target)
-                        return
-                    }
-
-                    // Fallback: open the search page; its DOM scrape retries
-                    // the resolution there.
-                    guard generation == ViewRouter.shared.navigationGeneration else { return }
-                    let query = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title
-                    ViewRouter.shared.openStore(
-                        url: .init(string: "https://store.epicgames.com/browse?q=\(query)&sortBy=relevancy&sortDir=DESC")!,
-                        namespace: namespace,
-                        gameTitle: title
-                    )
-                }
-            }
             .overlay(alignment: .bottom) {
                 HStack {
                     VStack(alignment: .leading) {
