@@ -197,24 +197,28 @@ struct ContentView: View {
                     EmptyView()
                 }
             }, detail: {
-                // Library and Store stay alive in the ZStack across page
-                // switches: Library keeps its scroll position, Store keeps its
-                // web view's page. Inactive copies render at opacity 0 with
-                // hit-testing disabled and suppress their own chrome.
+                // Library stays alive across page switches so its scroll
+                // position survives; inactive copies render at opacity 0 with
+                // hit-testing disabled.
+                //
+                // Store must NOT be kept alive: its WKWebView doesn't fully
+                // respect allowsHitTesting(false) on macOS, and an invisible
+                // retained web view stacked over the Library ate every card
+                // button click. Store state is preserved anyway — the web view
+                // itself is retained (see WebView.retainedWebView) and
+                // StoreView restores its page when recreated.
                 ZStack {
                     LibraryView(isActive: router.selectedPage == .library)
                         .opacity(router.selectedPage == .library ? 1 : 0)
                         .allowsHitTesting(router.selectedPage == .library)
-                    StoreView(isActive: router.selectedPage == .store)
-                        .opacity(router.selectedPage == .store ? 1 : 0)
-                        .allowsHitTesting(router.selectedPage == .store)
 
                     switch router.selectedPage {
                     case .home, .none: HomeView()
+                    case .store: StoreView()
                     case .containers: ContainersView()
                     case .accounts: AccountsView()
                     case .operations: OperationsView()
-                    case .library, .store: EmptyView()
+                    case .library: EmptyView()
                     }
                 }
             }
