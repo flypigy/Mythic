@@ -34,11 +34,22 @@ import OSLog
         }
     }
     
+    /// Deterministic ordering: a single comparison (operating → installed →
+    /// title → id) so the sequence is a total order. The previous chained
+    /// `.sorted` calls relied on Swift's *unstable* sort: equal keys (every
+    /// installed game shares the same installationState key) were reshuffled
+    /// whenever the backing Set's iteration order changed, which shuffled card
+    /// positions between renders and made taps land on the wrong game.
     var sortedLibrary: [Game] {
         GameDataStore.shared.library
-            .sorted(by: { $0.title < $1.title })                            // primary sort — title
-            .sorted(by: { $0.installationState > $1.installationState })    // secondary sort — installation state
-            .sorted(by: { $0.isOperating && !$1.isOperating })              // tertiary sort — operating games
+            .sorted { lhs, rhs in
+                if lhs.isOperating != rhs.isOperating { return lhs.isOperating }
+                if lhs.installationState != rhs.installationState {
+                    return lhs.installationState > rhs.installationState
+                }
+                if lhs.title != rhs.title { return lhs.title < rhs.title }
+                return lhs.id < rhs.id
+            }
             .filter { game in
                 let matchesText: Bool = searchString.isEmpty || game.title.localizedStandardContains(searchString)
                 let matchesTokens: Bool = searchTokens.isEmpty || searchTokens.allSatisfy { token in
