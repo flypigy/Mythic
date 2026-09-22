@@ -19,10 +19,14 @@ struct GameListView: View {
     
     @State private var isGameImportViewPresented: Bool = false
 
-    /// Top-of-viewport game id, persisted so the list returns to where the
-    /// user left it after the view is torn down by page switches.
-    @State private var scrollPosition: String?
-    @AppStorage("gameListScrollAnchor") private var storedScrollAnchor: String = ""
+    /// Scroll offset (points from the scroll view's top, including content
+    /// insets), persisted so the list returns to where the user left it after
+    /// the view is torn down by page switches. Geometry-based rather than
+    /// item-id-based: the id-binding variant never reported scrolling in this
+    /// view hierarchy, so nothing was ever saved (verified via the persisted
+    /// key staying unset).
+    @State private var scrollPos = ScrollPosition()
+    @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
 
     var body: some View {
         VStack {
@@ -50,7 +54,6 @@ struct GameListView: View {
                     GameImportView(isPresented: $isGameImportViewPresented)
                 }
             } else {
-                ScrollViewReader { proxy in
                 ScrollView(.vertical) {
                     // FIXME: sortedLibrary should not be appended to or it'll cause overwrites.
                     // FIXME: a dirtyfix is to directly set to the underlying library
@@ -73,32 +76,28 @@ struct GameListView: View {
                         .padding()
                     }
                 }
-                .scrollPosition(id: $scrollPosition, anchor: .top)
-                .onChange(of: scrollPosition) {
-                    // Save continuously (not on disappear) — the position can
-                    // lag at teardown time.
-                    if let scrollPosition {
-                        storedScrollAnchor = scrollPosition
+                .scrollPosition($scrollPos)
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.y + geometry.contentInsets.top
+                } action: { _, newOffset in
+                    // Throttle: geometry ticks fire continuously while scrolling.
+                    if abs(newOffset - storedScrollOffset) > 2 {
+                        storedScrollOffset = newOffset
                     }
                 }
                 .task(id: viewModel.sortedLibrary.count) {
-                    // Restore the persisted position after the view is
-                    // recreated by a page switch. Writing the scrollPosition
-                    // binding alone proved unreliable with LazyVGrid on macOS,
-                    // so ScrollViewReader.scrollTo (designed for lazy
-                    // containers) drives the scroll and a short retry loop
-                    // re-attempts until the position latches. Only runs while
-                    // the position is unset, so it never yanks a list the
-                    // user is already scrolling.
-                    guard !storedScrollAnchor.isEmpty,
-                          viewModel.sortedLibrary.contains(where: { $0.id == storedScrollAnchor })
-                    else { return }
+                    // Restore the persisted offset after the view is recreated
+                    // by a page switch. Point-based restore (Apple's documented
+                    // save/restore recipe with onScrollGeometryChange), retried
+                    // briefly until it latches; only while the position is
+                    // still at the top, so it never fights the user.
+                    guard storedScrollOffset > 1 else { return }
+                    try? await Task.sleep(for: .milliseconds(150))
 
                     for _ in 0..<8 {
-                        guard scrollPosition == nil else { break }
+                        if abs((scrollPos.point?.y ?? 0) - storedScrollOffset) < 6 { break }
+                        scrollPos = ScrollPosition(point: CGPoint(x: 0, y: storedScrollOffset))
                         try? await Task.sleep(for: .milliseconds(120))
-                        proxy.scrollTo(storedScrollAnchor, anchor: .top)
-                        scrollPosition = storedScrollAnchor
                     }
                 }
                 .searchable(text: $viewModel.searchString,
@@ -117,7 +116,6 @@ struct GameListView: View {
                     case .favourited:
                         Text("Favourited")
                     }
-                }
                 }
             }
         }

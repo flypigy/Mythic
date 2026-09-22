@@ -394,6 +394,18 @@ extension GameCard {
                     .layoutPriority(1)
             } else {
                 Buttons.Prominent.InstallButton(game: $game, withLabel: withLabel)
+
+                // Uninstalled cards skip the full menu (update/uninstall make
+                // no sense there) — just a lightweight store link.
+                if case .epicGames = game.storefront {
+                    Button {
+                        ViewRouter.shared.openStorePage(for: game)
+                    } label: {
+                        Image(systemName: "bag")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("View this game on the Epic Games Store")
+                }
             }
         }
     }
