@@ -21,6 +21,13 @@ struct GameCard: View {
     var body: some View {
         GameImageCard(game: game, url: game.verticalImageURL, isImageEmpty: $isImageEmpty)
             .aspectRatio(3/4, contentMode: .fit)
+            // Epic games' covers open the store at this game's search results
+            // (metadata carries no store slug, and a guessed slug risks 404s).
+            .onTapGesture {
+                guard case .epicGames = game.storefront else { return }
+                let query = game.title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? game.title
+                ViewRouter.shared.openStore(url: .init(string: "https://store.epicgames.com/search?q=\(query)")!)
+            }
             .overlay(alignment: .bottom) {
                 HStack {
                     VStack(alignment: .leading) {

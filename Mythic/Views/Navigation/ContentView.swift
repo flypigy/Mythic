@@ -14,17 +14,39 @@ import Foundation
 import SwiftUI
 import SemanticVersion
 
+/// Cross-page navigation coordinator. Lets non-sidebar views (e.g. a library
+/// game card) programmatically push the Store page and hand it a target URL.
+final class ViewRouter: ObservableObject {
+    static let shared = ViewRouter()
+
+    @Published var isStoreActive = false
+    @Published var pendingStoreURL: URL?
+
+    /// Atomically take (and clear) a pending store deep link.
+    func consumePendingStoreURL() -> URL? {
+        defer { pendingStoreURL = nil }
+        return pendingStoreURL
+    }
+
+    /// Point the Store web view at `url` and push the Store page.
+    func openStore(url: URL) {
+        pendingStoreURL = url
+        isStoreActive = true
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject var networkMonitor: NetworkMonitor
-    
+
     @ObservedObject private var updateController: SparkleUpdateController = .shared
     @Bindable private var operationManager: GameOperationManager = .shared
+    @ObservedObject private var router: ViewRouter = .shared
 
     @State private var appVersion: String = .init()
     @State private var buildNumber: Int = 0
-    
+
     @State private var engineVersion: SemanticVersion?
-    
+
     var body: some View {
         NavigationSplitView(
             sidebar: {
@@ -34,13 +56,13 @@ struct ContentView: View {
                             Label("Home", systemImage: "house")
                                 .help("Everything in one place")
                         }
-                        
+
                         NavigationLink(destination: LibraryView()) {
                             Label("Library", systemImage: "books.vertical")
                                 .help("View your games")
                         }
-                        
-                        NavigationLink(destination: StoreView()) {
+
+                        NavigationLink(destination: StoreView(), isActive: $router.isStoreActive) {
                             Label("Store", systemImage: "bag")
                                 .help("Purchase new games from Epic")
                         }

@@ -12,9 +12,19 @@ import SwordRPC
 import WebKit
 
 struct StoreView: View {
-    private var canGoBack = false
-    private var canGoForward = false
-    @State private var url: URL = .init(string: "https://store.epicgames.com/")!
+    @State private var canGoBack = false
+    @State private var canGoForward = false
+    // Initial value: a pending deep link (set by tapping a library game card)
+    // wins, then whatever page the retained web view is currently on, then the
+    // store landing page. Read-only on purpose: NavigationLink eagerly
+    // evaluates this init on every ContentView body pass, so consuming the
+    // pending link here would race its actual delivery — consumption happens
+    // in onAppear.
+    @State private var url: URL = {
+        ViewRouter.shared.pendingStoreURL
+            ?? WebView.retainedWebView?.url
+            ?? .init(string: "https://store.epicgames.com/")!
+    }()
 
     @State private var refreshIconRotation: Angle = .degrees(0)
 
@@ -25,11 +35,26 @@ struct StoreView: View {
             url: url,
             datastore: .init(forIdentifier: epicGamesWebDataStore),
             error: .constant(nil),
-            canGoBack: canGoBack,
-            canGoForward: canGoForward
+            canGoBack: $canGoBack,
+            canGoForward: $canGoForward
         )
 
         .navigationTitle("Store")
+
+        // Deep links: consume (and clear) the pending link when this view
+        // appears; onReceive covers links arriving while already alive.
+        .onAppear {
+            if let pending = ViewRouter.shared.consumePendingStoreURL() {
+                url = pending
+                WebView.retainedWebView?.load(URLRequest(url: pending))
+            }
+        }
+        .onReceive(ViewRouter.shared.$pendingStoreURL) { pending in
+            guard let pending else { return }
+            ViewRouter.shared.pendingStoreURL = nil
+            url = pending
+            WebView.retainedWebView?.load(URLRequest(url: pending))
+        }
 
         .task(priority: .background) {
             discordRPC.setPresence({
@@ -38,17 +63,15 @@ struct StoreView: View {
                 presence.state = "Looking for games to purchase"
                 presence.timestamps.start = .now
                 presence.assets.largeImage = "macos_512x512_2x"
-                
+
                 return presence
             }())
         }
-        
+
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    if canGoBack {
-                        url = .init(string: "javascript:history.back();")!
-                    }
+                    WebView.retainedWebView?.goBack()
                 } label: {
                     Image(systemName: "arrow.left")
                         .symbolVariant(.circle)
@@ -58,19 +81,17 @@ struct StoreView: View {
             
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    if canGoForward {
-                        url = .init(string: "javascript:history.forward();")!
-                    }
+                    WebView.retainedWebView?.goForward()
                 } label: {
                     Image(systemName: "arrow.right")
                         .symbolVariant(.circle)
                 }
                 .disabled(!canGoForward)
             }
-            
+
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    url = .init(string: "javascript:location.reload();")!
+                    WebView.retainedWebView?.reload()
                     withAnimation(.default) {
                         refreshIconRotation = .degrees(360)
                     } completion: {
@@ -84,10 +105,13 @@ struct StoreView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    NSWorkspace.shared.open(url)
+                    let landing = URL(string: "https://store.epicgames.com/")!
+                    url = landing
+                    WebView.retainedWebView?.load(URLRequest(url: landing))
                 } label: {
                     Image(systemName: "arrow.up.forward")
                 }
+                .help("Open the store's front page")
             }
         }
     }
