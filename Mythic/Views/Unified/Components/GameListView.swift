@@ -11,6 +11,12 @@ import Foundation
 import SwiftUI
 
 struct GameListView: View {
+    /// Whether this list is the currently-visible Library page. ContentView
+    /// keeps Library (and Store) views alive inside a ZStack so the scroll
+    /// position survives page switches; inactive copies must suppress their
+    /// searchable field and toolbar items.
+    var isActive: Bool = true
+
     @Bindable var viewModel: GameListViewModel = .shared
     @Bindable var gameDataStore: GameDataStore = .shared
     
@@ -18,13 +24,6 @@ struct GameListView: View {
     @AppStorage("gameCardSize") private var gameCardSize: Double = 200.0
     
     @State private var isGameImportViewPresented: Bool = false
-
-    /// Top-of-viewport game id while scrolling. Persisted on disappearance and
-    /// restored on reappearance, so switching pages keeps the list where the
-    /// user left it (the view itself is torn down by page switches).
-    @State private var scrollPosition: String?
-    @State private var lastReportedScrollAnchor: String?
-    @AppStorage("gameListScrollAnchor") private var storedScrollAnchor: String = ""
 
     var body: some View {
         VStack {
@@ -52,80 +51,58 @@ struct GameListView: View {
                     GameImportView(isPresented: $isGameImportViewPresented)
                 }
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical) {
-                        // FIXME: sortedLibrary should not be appended to or it'll cause overwrites.
-                        // FIXME: a dirtyfix is to directly set to the underlying library
-                        switch layout {
-                        case .grid:
-                            LazyVGrid(columns: [.init(.adaptive(minimum: gameCardSize))]) {
-                                ForEach(viewModel.sortedLibrary) { game in
-                                    GameCard(game: .constant(game))
-                                        .id(game.id)
-                                }
-                            }
-                            .padding()
-                        case .list:
-                            LazyVStack {
-                                ForEach(viewModel.sortedLibrary) { game in
-                                    ListGameCard(game: .constant(game))
-                                        .id(game.id)
-                                }
-                            }
-                            .padding()
-                        }
-                    }
-                    .scrollPosition(id: $scrollPosition, anchor: .top)
-                    .onDisappear {
-                        if let scrollPosition {
-                            storedScrollAnchor = scrollPosition
-                        } else {
-                            // scrollPosition can lag on quick page switches —
-                            // fall back to the last value it reported.
-                            if let last = lastReportedScrollAnchor {
-                                storedScrollAnchor = last
+                if isActive {
+                    scrollSection
+                        .searchable(text: $viewModel.searchString,
+                                    tokens: $viewModel.searchTokens,
+                                    suggestedTokens: .constant(viewModel.suggestedTokens),
+                                    placement: .toolbar) { token in
+                            switch token {
+                            case .platform(let platform):
+                                Text(platform.description)
+                            case .storefront(let storefront):
+                                Text(storefront.description)
+                            case .installed:
+                                Text("Installed")
+                            case .notInstalled:
+                                Text("Not Installed")
+                            case .favourited:
+                                Text("Favourited")
                             }
                         }
-                    }
-                    .onChange(of: scrollPosition) {
-                        if let scrollPosition {
-                            lastReportedScrollAnchor = scrollPosition
-                        }
-                    }
-                    .task {
-                        // Restore the last scroll position after the (re)created
-                        // view has laid out its content. scrollTo (rather than
-                        // writing the scrollPosition binding) reliably reaches
-                        // not-yet-instantiated lazy items.
-                        guard !storedScrollAnchor.isEmpty else { return }
-                        try? await Task.sleep(for: .seconds(0.15))
-                        if scrollPosition == nil,
-                           viewModel.sortedLibrary.contains(where: { $0.id == storedScrollAnchor }) {
-                            proxy.scrollTo(storedScrollAnchor, anchor: .top)
-                        }
-                    }
-                }
-                .searchable(text: $viewModel.searchString,
-                            tokens: $viewModel.searchTokens,
-                            suggestedTokens: .constant(viewModel.suggestedTokens),
-                            placement: .toolbar) { token in
-                    switch token {
-                    case .platform(let platform):
-                        Text(platform.description)
-                    case .storefront(let storefront):
-                        Text(storefront.description)
-                    case .installed:
-                        Text("Installed")
-                    case .notInstalled:
-                        Text("Not Installed")
-                    case .favourited:
-                        Text("Favourited")
-                    }
+                } else {
+                    // Inactive (kept-alive) copy: no searchable in the toolbar.
+                    scrollSection
                 }
             }
         }
         .animation(.easeInOut, value: layout)
         .animation(.default, value: viewModel.sortedLibrary)
+    }
+
+    /// The scrollable game list. The whole section is kept alive across page
+    /// switches (see `isActive`), which preserves the scroll position natively.
+    private var scrollSection: some View {
+        ScrollView(.vertical) {
+            // FIXME: sortedLibrary should not be appended to or it'll cause overwrites.
+            // FIXME: a dirtyfix is to directly set to the underlying library
+            switch layout {
+            case .grid:
+                LazyVGrid(columns: [.init(.adaptive(minimum: gameCardSize))]) {
+                    ForEach(viewModel.sortedLibrary) { game in
+                        GameCard(game: .constant(game))
+                    }
+                }
+                .padding()
+            case .list:
+                LazyVStack {
+                    ForEach(viewModel.sortedLibrary) { game in
+                        ListGameCard(game: .constant(game))
+                    }
+                }
+                .padding()
+            }
+        }
     }
 }
     

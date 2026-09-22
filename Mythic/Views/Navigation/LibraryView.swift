@@ -12,7 +12,12 @@ import SwiftyJSON
 import SwordRPC
 
 /// A view displaying the user's library of games.
+/// - Note: ContentView keeps this view alive in a ZStack across page switches
+///   (to preserve the game list's scroll position); `isActive` suppresses the
+///   toolbar items, searchable field and title on the hidden copy.
 struct LibraryView: View {
+    var isActive: Bool = true
+
     @Bindable var gameDataStore: GameDataStore = .shared
     @ObservedObject private var variables: VariableManager = .shared
 
@@ -21,8 +26,8 @@ struct LibraryView: View {
     @CodableAppStorage("gameListLayout") var gameListLayout: GameListViewModel.Layout = .grid
 
     var body: some View {
-        GameListView()
-            .navigationTitle("Library")
+        GameListView(isActive: isActive)
+            .navigationTitle(isActive ? "Library" : "")
             .safeAreaInset(edge: .top, spacing: 0) {
                 if gameDataStore.epicSyncState != .idle {
                     syncStateBar
@@ -30,6 +35,7 @@ struct LibraryView: View {
             }
 
             .toolbar {
+                if isActive {
                 ToolbarItem(placement: .status) {
                     if gameListViewModel.isUpdatingLibrary {
                         ProgressView()
@@ -100,6 +106,7 @@ struct LibraryView: View {
                         }
                         .menuIndicator(.hidden)
                     }
+                }
                 }
             }
         

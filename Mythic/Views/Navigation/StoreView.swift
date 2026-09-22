@@ -12,6 +12,11 @@ import SwordRPC
 import WebKit
 
 struct StoreView: View {
+    /// Whether this is the currently-visible page. ContentView keeps this view
+    /// alive in a ZStack (preserving the web view's page); the hidden copy
+    /// suppresses its toolbar items and title.
+    var isActive: Bool = true
+
     @State private var canGoBack = false
     @State private var canGoForward = false
     // Initial value: the retained web view's live URL (mirrored by
@@ -34,11 +39,14 @@ struct StoreView: View {
             canGoBack: $canGoBack,
             canGoForward: $canGoForward,
             onPageLoaded: { _ in
+                // Resolve only after the (deep-linked) page has actually
+                // rendered — running the lookup earlier races the load, and
+                // the fetch would run in a nonexistent page context.
                 Task { @MainActor in await resolvePendingGameLookup() }
             }
         )
 
-        .navigationTitle("Store")
+        .navigationTitle(isActive ? "Store" : "")
 
         // Deep links: consume (and clear) the pending link when this view
         // appears; onReceive covers links arriving while already alive.
@@ -55,13 +63,7 @@ struct StoreView: View {
             url = pending
         }
 
-        // After the (deep-linked) page renders, resolve the pending game title
-        // to its exact product page and navigate there; failure leaves the
-        // search/browse page visible as a fallback.
-        .onChange(of: url) {
-            guard ViewRouter.shared.pendingGameLookup != nil else { return }
-            Task { @MainActor in await resolvePendingGameLookup() }
-        }
+
 
         .task(priority: .background) {
             discordRPC.setPresence({
@@ -76,6 +78,7 @@ struct StoreView: View {
         }
 
         .toolbar {
+            if isActive {
             ToolbarItem(placement: .confirmationAction) {
                 Button {
                     WebView.retainedWebView?.goBack()
@@ -117,6 +120,7 @@ struct StoreView: View {
                     Image(systemName: "arrow.up.forward")
                 }
                 .help("Open the store's front page")
+            }
             }
         }
     }

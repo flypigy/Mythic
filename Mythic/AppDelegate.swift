@@ -55,7 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task(priority: .utility) {
             while true {
                 await Legendary.updateMetadata()
-                try? await Task.sleep(for: .seconds(5 * 60))
+                try? await Task.sleep(for: .seconds(60 * 60))
             }
         }
 

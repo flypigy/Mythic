@@ -66,13 +66,8 @@ struct ContentView: View {
 
     @State private var engineVersion: SemanticVersion?
 
-    /// Sidebar visibility, toggled by our own transparent toolbar button
-    /// (the system sidebar-toggle button renders with a glassy background).
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
-
     var body: some View {
         NavigationSplitView(
-            columnVisibility: $columnVisibility,
             sidebar: {
                 // selection-driven navigation: deprecated isActive-based
                 // NavigationLinks proved unreliable when triggered
@@ -152,32 +147,29 @@ struct ContentView: View {
                     EmptyView()
                 }
             }, detail: {
-                switch router.selectedPage {
-                case .library: LibraryView()
-                case .store: StoreView()
-                case .containers: ContainersView()
-                case .accounts: AccountsView()
-                case .operations: OperationsView()
-                case .home, .none: HomeView()
+                // Library and Store stay alive in the ZStack across page
+                // switches: Library keeps its scroll position, Store keeps its
+                // web view's page. Inactive copies render at opacity 0 with
+                // hit-testing disabled and suppress their own chrome.
+                ZStack {
+                    LibraryView(isActive: router.selectedPage == .library)
+                        .opacity(router.selectedPage == .library ? 1 : 0)
+                        .allowsHitTesting(router.selectedPage == .library)
+                    StoreView(isActive: router.selectedPage == .store)
+                        .opacity(router.selectedPage == .store ? 1 : 0)
+                        .allowsHitTesting(router.selectedPage == .store)
+
+                    switch router.selectedPage {
+                    case .home, .none: HomeView()
+                    case .containers: ContainersView()
+                    case .accounts: AccountsView()
+                    case .operations: OperationsView()
+                    case .library, .store: EmptyView()
+                    }
                 }
             }
         )
-        // The system sidebar-toggle button is replaced with our own plain
-        // (background-free) button below.
-        .toolbar(removing: .sidebarToggle)
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    withAnimation {
-                        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-                    }
-                } label: {
-                    Image(systemName: "sidebar.leading")
-                }
-                .buttonStyle(.plain)
-                .help("Hide or show the sidebar")
-            }
-
             ToolbarItem(placement: .status) {
                 if !networkMonitor.isConnected {
                     Image(systemName: "network")
