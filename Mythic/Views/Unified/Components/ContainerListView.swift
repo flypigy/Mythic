@@ -12,11 +12,17 @@ import OSLog
 import SwordRPC
 
 struct ContainerListView: View {
-    @State private var isContainerConfigurationViewPresented = false
-    @State private var isDeletionAlertPresented = false
-    
     @State private var isContainerCreationViewPresented = false
-    
+
+    /// The container whose configuration sheet is presented. Item-based
+    /// presentation: sharing one Bool across ForEach rows would always present
+    /// the first row's sheet regardless of which row's gear was clicked.
+    @State private var selectedContainer: Wine.Container?
+
+    /// The container pending deletion, same item-based reasoning as above —
+    /// a shared Bool here could delete the wrong container.
+    @State private var containerPendingDeletion: Wine.Container?
+
     var body: some View {
         if Engine.isInstalled {
             ForEach(Wine.containerObjects) { container in
@@ -36,45 +42,51 @@ struct ContainerListView: View {
                     Spacer()
 
                     Button {
-                        isContainerConfigurationViewPresented = true
+                        selectedContainer = container
                     } label: {
                         Image(systemName: "gear")
                     }
                     .disabled(!Engine.isInstalled)
                     .buttonStyle(.borderless)
                     .help("Modify default settings for \"\(container.name)\"")
-                    .sheet(isPresented: $isContainerConfigurationViewPresented) {
-                        ContainerConfigurationView(containerURL: .constant(container.url),
-                                                   isPresented: $isContainerConfigurationViewPresented)
-                    }
 
                     Button {
-                        isDeletionAlertPresented = true
+                        containerPendingDeletion = container
                     } label: {
                         Image(systemName: "xmark.bin")
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
-                    .alert(isPresented: $isDeletionAlertPresented) {
-                        return Alert(
-                            title: .init("Are you sure you want to delete \"\(container.name)\"?"),
-                            message: .init("This process cannot be undone."),
-                            primaryButton: .destructive(.init("Delete")) {
-                                do {
-                                    try Wine.deleteContainer(containerURL: container.url)
-                                } catch {
-                                    Logger.file.error("Unable to delete container \(container.name): \(error.localizedDescription)")
-                                    isDeletionAlertPresented = false
-                                }
-                            },
-                            secondaryButton: .cancel(.init("Cancel")) {
-                                isDeletionAlertPresented = false
-                            }
-                        )
-                    }
                 }
             }
-        } else if Wine.containerURLs.isEmpty {
+            .sheet(item: $selectedContainer) { container in
+                ContainerConfigurationView(
+                    containerURL: .constant(container.url),
+                    isPresented: Binding(
+                        get: { selectedContainer != nil },
+                        set: { if !$0 { selectedContainer = nil } }
+                    )
+                )
+            }
+            .alert(
+                "Are you sure you want to delete \"\(containerPendingDeletion?.name ?? "")\"?",
+                isPresented: Binding(
+                    get: { containerPendingDeletion != nil },
+                    set: { if !$0 { containerPendingDeletion = nil } }
+                ),
+                presenting: containerPendingDeletion
+            ) { container in
+                Button("Delete", role: .destructive) {
+                    do {
+                        try Wine.deleteContainer(containerURL: container.url)
+                    } catch {
+                        Logger.file.error("Unable to delete container \(container.name): \(error.localizedDescription)")
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This process cannot be undone.")
+            }
             ContentUnavailableView(
                 "No containers are initialised. 😢",
                 systemImage: "cube.transparent",
