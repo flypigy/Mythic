@@ -130,91 +130,64 @@ struct StoreView: View {
     /// Resolves the pending game lookup (set when a library card was tapped)
     /// to the game's exact product page:
     ///
-    /// 1. Primary: Epic's own GraphQL — autocomplete the title to an offer,
-    ///    then fetch the offer's catalog namespace slug. Both are persisted
-    ///    queries fetched from inside the retained store web view's page
-    ///    context (bare URLSession requests hit Cloudflare).
+    /// 1. Primary: one POST to the launcher GraphQL endpoint (no Cloudflare)
+    ///    mapping the game's catalog namespace to its product-home slug.
+    ///    The namespace comes from legendary's local metadata.
     /// 2. Fallback: scrape the rendered browse page's DOM for the first
     ///    product link (preferring a title match).
     ///
     /// Any failure leaves the browse/search page visible.
     @MainActor
     private func resolvePendingGameLookup() async {
-        guard let title = ViewRouter.shared.pendingGameLookup,
+        guard ViewRouter.shared.pendingGameLookup != nil
+                || ViewRouter.shared.pendingStoreNamespace != nil,
               let webView = WebView.retainedWebView,
               webView.url?.path.contains("/browse") == true else { return }
-        defer { ViewRouter.shared.pendingGameLookup = nil }
+        defer {
+            ViewRouter.shared.pendingStoreNamespace = nil
+            ViewRouter.shared.pendingGameLookup = nil
+        }
 
-        if let slug = await StoreSlugResolver.productSlug(for: title, in: webView),
+        if let namespace = ViewRouter.shared.pendingStoreNamespace,
+           let slug = await StoreSlugResolver.productSlug(namespace: namespace),
            let target = URL(string: "https://store.epicgames.com/p/\(slug)") {
             url = target
             return
         }
 
-        if let href = await StoreSlugResolver.scrapeFirstProductLink(matching: title, in: webView),
+        if let title = ViewRouter.shared.pendingGameLookup,
+           let href = await StoreSlugResolver.scrapeFirstProductLink(matching: title, in: webView),
+           href.hasPrefix("/p/"),
            let target = URL(string: "https://store.epicgames.com" + href) {
             url = target
         }
     }
 }
 
-/// Slug resolution helpers, run inside the store page's JS context (inheriting
-/// its Cloudflare clearance — bare URLSession requests are blocked).
+/// Slug resolution helpers.
 enum StoreSlugResolver {
-    /// Two-step persisted GraphQL lookup: autocomplete the title to an offer,
-    /// then read that offer's catalog namespace page slug.
-    static func productSlug(for title: String, in webView: WKWebView) async -> String? {
-        let searchVariables: [String: Any] = [
-            "allowCountries": "CN",
-            "category": "games/edition/base|bundles/games|games/edition|editors|addons|games/demo|software/edition/base|games/experience|subscription",
-            "count": 5,
-            "country": "CN",
-            "keywords": title,
-            "locale": "en-US",
-            "sortBy": NSNull(),
-            "sortDir": "DESC",
-        ]
-        guard let search = await runPersistedQuery(
-            operationName: "primarySearchAutocomplete",
-            variables: searchVariables,
-            sha256Hash: "be4fe909f9a35f9704db7fed06fc4a47fc798ec0a6cbfa24d737aec2465904fa",
-            in: webView
-        ) else { return nil }
-
-        // Prefer the element whose title matches exactly; else the top hit.
-        guard
-            let elements = json(search, path: ["data", "Catalog", "searchStore", "elements"]) as? [[String: Any]],
-            !elements.isEmpty
-        else { return nil }
-
-        let lowered = title.lowercased()
-        let offer = elements.first { ($0["title"] as? String)?.lowercased() == lowered }
-            ?? elements.first
+    /// Maps an Epic catalog namespace to its product-home page slug via the
+    /// launcher GraphQL endpoint (Heroic's approach — no Cloudflare).
+    static func productSlug(namespace: String) async -> String? {
+        var request = URLRequest(url: URL(string: "https://launcher.store.epicgames.com/graphql")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) EpicGamesLauncher",
+            forHTTPHeaderField: "User-Agent"
+        )
+        let query = "{ Catalog { catalogNs(namespace: \"\(namespace)\") { mappings(pageType: \"productHome\") { pageSlug pageType } } } }"
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": query])
 
         guard
-            let offerID = offer?["offerId"] as? String,
-            let sandboxID = offer?["sandboxId"] as? String
+            let (data, _) = try? await URLSession.shared.data(for: request),
+            let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let mappings = json(response, path: ["data", "Catalog", "catalogNs", "mappings"]) as? [[String: Any]]
         else { return nil }
 
-        let offerVariables: [String: Any] = [
-            "locale": "en-US",
-            "country": "CN",
-            "offerId": offerID,
-            "sandboxId": sandboxID,
-        ]
-        guard let offerDetails = await runPersistedQuery(
-            operationName: "getCatalogOffer",
-            variables: offerVariables,
-            sha256Hash: "0bd79d7aaf89de3693abb813eec8b664321fab84037cbb968730631c8afe9a9d",
-            in: webView
-        ) else { return nil }
-
-        guard
-            let pageSlug = json(offerDetails, path: ["data", "Catalog", "catalogOffer", "catalogNs", "pageSlug"]) as? String,
-            !pageSlug.isEmpty
-        else { return nil }
-
-        return pageSlug
+        return mappings
+            .first(where: { $0["pageType"] as? String == "productHome" })?["pageSlug"] as? String
     }
 
     /// Fallback: poll the rendered browse page's DOM for the first product
@@ -240,23 +213,6 @@ enum StoreSlugResolver {
         return nil
     }
 
-    static func runPersistedQuery(operationName: String, variables: [String: Any], sha256Hash: String, in webView: WKWebView) async -> Any? {
-        let script: String = {
-            let variablesJSON = toJSON(variables)
-            let extensionsJSON = toJSON(["persistedQuery": ["version": 1, "sha256Hash": sha256Hash]])
-            let url = "https://store.epicgames.com/graphql?operationName=\(operationName)&variables=\(variablesJSON)&extensions=\(extensionsJSON)"
-            return """
-            fetch("\(url)").then(function (response) { return response.json(); })
-            """
-        }()
-
-        do {
-            return try await webView.evaluateJavaScript(script)
-        } catch {
-            return nil
-        }
-    }
-
     /// Walks a nested dictionary with the given key path.
     static func json(_ value: Any, path: [String]) -> Any? {
         var current = value
@@ -265,18 +221,6 @@ enum StoreSlugResolver {
             current = next
         }
         return current
-    }
-
-    private static func toJSON(_ value: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value),
-              let string = String(data: data, encoding: .utf8) else { return "{}" }
-        return string.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(.init(charactersIn: "-._~"))) ?? string
-    }
-
-    private static func javaScriptString(_ value: String) -> String {
-        // JSONEncoder output is a properly quoted, escaped JS string literal.
-        (try? JSONEncoder().encode(value))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
     }
 }
 #Preview {

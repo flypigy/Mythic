@@ -27,11 +27,19 @@ struct GameCard: View {
             // random suffix (e.g. /p/brotato-ed4097) so guessing would 404.
             .onTapGesture {
                 guard case .epicGames = game.storefront else { return }
-                let query = game.title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? game.title
-                ViewRouter.shared.openStore(
-                    url: .init(string: "https://store.epicgames.com/browse?q=\(query)&sortBy=relevancy&sortDir=DESC")!,
-                    gameTitle: game.title
-                )
+                let title = game.title
+                let gameID = game.id
+                Task(priority: .userInitiated) {
+                    // Catalog namespace comes from legendary's local metadata
+                    // (one small file read) and enables the exact-slug lookup.
+                    let namespace = (try? Legendary.getGameMetadata(gameID: gameID))?.storeMetadata.namespace
+                    let query = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title
+                    ViewRouter.shared.openStore(
+                        url: .init(string: "https://store.epicgames.com/browse?q=\(query)&sortBy=relevancy&sortDir=DESC")!,
+                        namespace: namespace,
+                        gameTitle: title
+                    )
+                }
             }
             .overlay(alignment: .bottom) {
                 HStack {

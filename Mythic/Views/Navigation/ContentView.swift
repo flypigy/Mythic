@@ -31,6 +31,11 @@ final class ViewRouter: ObservableObject {
     /// loaded; consumed by StoreView after its web view finishes rendering.
     @Published var pendingGameLookup: String?
 
+    /// The Epic catalog namespace of the game awaiting a slug lookup (from
+    /// legendary's local metadata). Primary resolution path: one POST to the
+    /// launcher GraphQL endpoint maps namespace → product-home page slug.
+    @Published var pendingStoreNamespace: String?
+
     /// Last known URL of the retained store web view. Static (not published)
     /// so it survives page switches — SPA in-page navigation never triggers
     /// the web view's navigation delegate, so it's written on every web view
@@ -44,11 +49,13 @@ final class ViewRouter: ObservableObject {
     }
 
     /// Point the Store web view at `url` and switch to the Store page.
-    /// - Parameter gameTitle: when set, StoreView tries to resolve the game's
-    ///   exact product page from the title (via Epic's search APIs) after the
-    ///   initial page loads; failure falls back to `url` (the search page).
-    func openStore(url: URL, gameTitle: String? = nil) {
+    /// - Parameter namespace: the game's Epic catalog namespace (from legendary
+    ///   metadata). When set, StoreView resolves the exact product page with
+    ///   one launcher-GraphQL query; failure falls back to `url` (the search
+    ///   page) and the `gameTitle`-based DOM scrape.
+    func openStore(url: URL, namespace: String? = nil, gameTitle: String? = nil) {
         pendingStoreURL = url
+        pendingStoreNamespace = namespace
         pendingGameLookup = gameTitle
         selectedPage = .store
     }
