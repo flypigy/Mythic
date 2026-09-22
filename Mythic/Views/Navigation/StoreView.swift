@@ -213,6 +213,12 @@ enum StoreSlugResolver {
         return nil
     }
 
+    private static func javaScriptString(_ value: String) -> String {
+        // JSONEncoder output is a properly quoted, escaped JS string literal.
+        (try? JSONEncoder().encode(value))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+    }
+
     /// Walks a nested dictionary with the given key path.
     static func json(_ value: Any, path: [String]) -> Any? {
         var current = value
