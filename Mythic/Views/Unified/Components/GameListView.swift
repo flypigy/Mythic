@@ -23,6 +23,7 @@ struct GameListView: View {
     /// restored on reappearance, so switching pages keeps the list where the
     /// user left it (the view itself is torn down by page switches).
     @State private var scrollPosition: String?
+    @State private var lastReportedScrollAnchor: String?
     @AppStorage("gameListScrollAnchor") private var storedScrollAnchor: String = ""
 
     var body: some View {
@@ -51,40 +52,57 @@ struct GameListView: View {
                     GameImportView(isPresented: $isGameImportViewPresented)
                 }
             } else {
-                ScrollView(.vertical) {
-                    // FIXME: sortedLibrary should not be appended to or it'll cause overwrites.
-                    // FIXME: a dirtyfix is to directly set to the underlying library
-                    switch layout {
-                    case .grid:
-                        LazyVGrid(columns: [.init(.adaptive(minimum: gameCardSize))]) {
-                            ForEach(viewModel.sortedLibrary) { game in
-                                GameCard(game: .constant(game))
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        // FIXME: sortedLibrary should not be appended to or it'll cause overwrites.
+                        // FIXME: a dirtyfix is to directly set to the underlying library
+                        switch layout {
+                        case .grid:
+                            LazyVGrid(columns: [.init(.adaptive(minimum: gameCardSize))]) {
+                                ForEach(viewModel.sortedLibrary) { game in
+                                    GameCard(game: .constant(game))
+                                        .id(game.id)
+                                }
+                            }
+                            .padding()
+                        case .list:
+                            LazyVStack {
+                                ForEach(viewModel.sortedLibrary) { game in
+                                    ListGameCard(game: .constant(game))
+                                        .id(game.id)
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                    .scrollPosition(id: $scrollPosition, anchor: .top)
+                    .onDisappear {
+                        if let scrollPosition {
+                            storedScrollAnchor = scrollPosition
+                        } else {
+                            // scrollPosition can lag on quick page switches —
+                            // fall back to the last value it reported.
+                            if let last = lastReportedScrollAnchor {
+                                storedScrollAnchor = last
                             }
                         }
-                        .padding()
-                    case .list:
-                        LazyVStack {
-                            ForEach(viewModel.sortedLibrary) { game in
-                                ListGameCard(game: .constant(game))
-                            }
+                    }
+                    .onChange(of: scrollPosition) {
+                        if let scrollPosition {
+                            lastReportedScrollAnchor = scrollPosition
                         }
-                        .padding()
                     }
-                }
-                .scrollPosition(id: $scrollPosition, anchor: .top)
-                .onDisappear {
-                    if let scrollPosition {
-                        storedScrollAnchor = scrollPosition
-                    }
-                }
-                .task {
-                    // Restore the last scroll position after the (re)created
-                    // view has laid out its content.
-                    guard !storedScrollAnchor.isEmpty else { return }
-                    try? await Task.sleep(for: .seconds(0.1))
-                    if scrollPosition == nil,
-                       viewModel.sortedLibrary.contains(where: { $0.id == storedScrollAnchor }) {
-                        scrollPosition = storedScrollAnchor
+                    .task {
+                        // Restore the last scroll position after the (re)created
+                        // view has laid out its content. scrollTo (rather than
+                        // writing the scrollPosition binding) reliably reaches
+                        // not-yet-instantiated lazy items.
+                        guard !storedScrollAnchor.isEmpty else { return }
+                        try? await Task.sleep(for: .seconds(0.15))
+                        if scrollPosition == nil,
+                           viewModel.sortedLibrary.contains(where: { $0.id == storedScrollAnchor }) {
+                            proxy.scrollTo(storedScrollAnchor, anchor: .top)
+                        }
                     }
                 }
                 .searchable(text: $viewModel.searchString,

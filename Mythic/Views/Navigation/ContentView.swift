@@ -27,6 +27,16 @@ final class ViewRouter: ObservableObject {
     @Published var selectedPage: AppPage?
     @Published var pendingStoreURL: URL?
 
+    /// The game title awaiting a precise slug lookup once the store page has
+    /// loaded; consumed by StoreView after its web view finishes rendering.
+    @Published var pendingGameLookup: String?
+
+    /// Last known URL of the retained store web view. Static (not published)
+    /// so it survives page switches — SPA in-page navigation never triggers
+    /// the web view's navigation delegate, so it's written on every web view
+    /// update and read when the Store view is recreated.
+    static var lastKnownStoreURL: URL?
+
     /// Atomically take (and clear) a pending store deep link.
     func consumePendingStoreURL() -> URL? {
         defer { pendingStoreURL = nil }
@@ -34,8 +44,12 @@ final class ViewRouter: ObservableObject {
     }
 
     /// Point the Store web view at `url` and switch to the Store page.
-    func openStore(url: URL) {
+    /// - Parameter gameTitle: when set, StoreView tries to resolve the game's
+    ///   exact product page from the title (via Epic's search APIs) after the
+    ///   initial page loads; failure falls back to `url` (the search page).
+    func openStore(url: URL, gameTitle: String? = nil) {
         pendingStoreURL = url
+        pendingGameLookup = gameTitle
         selectedPage = .store
     }
 }
@@ -52,8 +66,13 @@ struct ContentView: View {
 
     @State private var engineVersion: SemanticVersion?
 
+    /// Sidebar visibility, toggled by our own transparent toolbar button
+    /// (the system sidebar-toggle button renders with a glassy background).
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+
     var body: some View {
         NavigationSplitView(
+            columnVisibility: $columnVisibility,
             sidebar: {
                 // selection-driven navigation: deprecated isActive-based
                 // NavigationLinks proved unreliable when triggered
@@ -143,7 +162,22 @@ struct ContentView: View {
                 }
             }
         )
+        // The system sidebar-toggle button is replaced with our own plain
+        // (background-free) button below.
+        .toolbar(removing: .sidebarToggle)
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    withAnimation {
+                        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                    }
+                } label: {
+                    Image(systemName: "sidebar.leading")
+                }
+                .buttonStyle(.plain)
+                .help("Hide or show the sidebar")
+            }
+
             ToolbarItem(placement: .status) {
                 if !networkMonitor.isConnected {
                     Image(systemName: "network")

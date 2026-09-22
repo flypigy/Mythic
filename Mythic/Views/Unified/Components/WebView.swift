@@ -9,15 +9,17 @@ import WebKit
 import OSLog
 
 struct WebView: NSViewRepresentable {
-    /// Loading target. `nil` (or a URL equal to the web view's current page or
-    /// the coordinator's last reported page) means "leave the web view alone" —
-    /// user navigation inside the page must not be reset by SwiftUI re-renders.
+    /// External navigation target. Only *changing* this value triggers a load —
+    /// user navigation inside the page (including SPA pushState) is never reset
+    /// by SwiftUI re-renders.
     var url: URL?
     var datastore: WKWebsiteDataStore = .default()
 
     @Binding var error: Error?
     var canGoBack: Binding<Bool>?
     var canGoForward: Binding<Bool>?
+    /// Called after the web view finishes loading a page.
+    var onPageLoaded: ((WKWebView) -> Void)? = nil
 
     let log = Logger(
         subsystem: Bundle.main.bundleIdentifier!,
@@ -32,6 +34,7 @@ struct WebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         if let retained = Self.retainedWebView {
             retained.navigationDelegate = context.coordinator
+            context.coordinator.sync(to: retained)
             return retained
         }
 
@@ -42,6 +45,7 @@ struct WebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
 
         if let url {
+            context.coordinator.lastAssignedURL = url
             webView.load(URLRequest(url: url))
         }
 
@@ -50,12 +54,18 @@ struct WebView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
-        // Load only when an external caller explicitly targets a different page.
-        // `lastReportedURL` distinguishes those requests from SwiftUI body
-        // re-evaluations that carry a stale `url` while the user has already
-        // navigated elsewhere inside the page.
-        if let url, url != nsView.url, url != context.coordinator.lastReportedURL {
-            nsView.load(URLRequest(url: url))
+        context.coordinator.onPageLoaded = onPageLoaded
+
+        // Mirror the live URL out (covers SPA pushState navigation, which never
+        // hits the navigation delegate), so page switches can restore it.
+        ViewRouter.lastKnownStoreURL = nsView.url
+
+        // Load only when the caller explicitly targets a different page.
+        if let url, url != context.coordinator.lastAssignedURL {
+            context.coordinator.lastAssignedURL = url
+            if nsView.url != url {
+                nsView.load(URLRequest(url: url))
+            }
         }
     }
 
@@ -65,10 +75,19 @@ struct WebView: NSViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate {
         var parent: WebView
-        var lastReportedURL: URL?
+        var lastAssignedURL: URL?
+        var onPageLoaded: ((WKWebView) -> Void)?
 
         init(_ parent: WebView) {
             self.parent = parent
+        }
+
+        /// Adopt the current state of a reused web view into a fresh
+        /// coordinator (new coordinator instances are created whenever the
+        /// SwiftUI view identity is recreated).
+        func sync(to webView: WKWebView) {
+            lastAssignedURL = webView.url
+            parent.error = nil
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation, withError error: Error) {
@@ -77,9 +96,10 @@ struct WebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation) {
-            lastReportedURL = webView.url
             parent.canGoBack?.wrappedValue = webView.canGoBack
             parent.canGoForward?.wrappedValue = webView.canGoForward
+            ViewRouter.lastKnownStoreURL = webView.url
+            onPageLoaded?(webView)
         }
     }
 }

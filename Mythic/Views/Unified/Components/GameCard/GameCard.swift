@@ -28,7 +28,10 @@ struct GameCard: View {
             .onTapGesture {
                 guard case .epicGames = game.storefront else { return }
                 let query = game.title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? game.title
-                ViewRouter.shared.openStore(url: .init(string: "https://store.epicgames.com/browse?q=\(query)&sortBy=relevancy&sortDir=DESC")!)
+                ViewRouter.shared.openStore(
+                    url: .init(string: "https://store.epicgames.com/browse?q=\(query)&sortBy=relevancy&sortDir=DESC")!,
+                    gameTitle: game.title
+                )
             }
             .overlay(alignment: .bottom) {
                 HStack {
