@@ -66,8 +66,12 @@ struct GameListView: View {
                         }
                         .padding()
                     }
+                    // Attached to the content INSIDE the scroll view: the
+                    // NSScrollView probe must sit within the document view so
+                    // walking superviews reaches it (a background on the
+                    // ScrollView itself is a sibling branch and never does).
+                    .preservingScrollOffset()
                 }
-                .preservingScrollOffset(itemCount: viewModel.sortedLibrary.count)
                 .searchable(text: $viewModel.searchString,
                             tokens: $viewModel.searchTokens,
                             suggestedTokens: .constant(viewModel.suggestedTokens),
@@ -99,9 +103,6 @@ struct GameListView: View {
 /// fine (verified in UserDefaults).
 @available(macOS 15.0, *)
 private struct ScrollOffsetPersistence: ViewModifier {
-    /// Library item count; changes when the (async-loaded) data populates.
-    var itemCount: Int
-
     @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
 
     func body(content: Content) -> some View {
@@ -178,7 +179,11 @@ private struct ScrollViewRestorer: NSViewRepresentable {
                     let current = scrollView.contentView.bounds.origin
                     if abs(current.y - target) < 6 { return }   // latched
                     if current.y > 6 { return }                 // user/system already moved it — never fight
-                    if scrollView.contentSize.height < target { continue } // content not laid out yet
+                    // documentView height is the scrollable content height;
+                    // NSScrollView.contentSize is just the viewport.
+                    guard let documentHeight = scrollView.documentView?.frame.height,
+                          documentHeight >= target
+                    else { continue }                           // content not laid out yet
 
                     scrollView.contentView.scroll(to: targetPoint)
                     scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -191,10 +196,12 @@ private struct ScrollViewRestorer: NSViewRepresentable {
 
 private extension View {
     /// Scroll-offset persistence where supported; no-ops on macOS 14.
+    /// Attach to content INSIDE the scroll view (the probe must live within
+    /// the document view to find the backing NSScrollView).
     @ViewBuilder
-    func preservingScrollOffset(itemCount: Int) -> some View {
+    func preservingScrollOffset() -> some View {
         if #available(macOS 15.0, *) {
-            modifier(ScrollOffsetPersistence(itemCount: itemCount))
+            modifier(ScrollOffsetPersistence())
         } else {
             self
         }
