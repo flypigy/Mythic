@@ -8,6 +8,7 @@
 // Copyright © 2023-2025 vapidinfinity
 
 import Foundation
+import OSLog
 import SwiftUI
 
 struct GameListView: View {
