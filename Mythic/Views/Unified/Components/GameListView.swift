@@ -18,7 +18,13 @@ struct GameListView: View {
     @AppStorage("gameCardSize") private var gameCardSize: Double = 200.0
     
     @State private var isGameImportViewPresented: Bool = false
-    
+
+    /// Top-of-viewport game id while scrolling. Persisted on disappearance and
+    /// restored on reappearance, so switching pages keeps the list where the
+    /// user left it (the view itself is torn down by page switches).
+    @State private var scrollPosition: String?
+    @AppStorage("gameListScrollAnchor") private var storedScrollAnchor: String = ""
+
     var body: some View {
         VStack {
             if gameDataStore.library.isEmpty {
@@ -33,7 +39,7 @@ struct GameListView: View {
                 .task {
                     try? await gameDataStore.refreshFromStorefronts()
                 }
-                
+
                 Button {
                     isGameImportViewPresented = true
                 } label: {
@@ -63,6 +69,22 @@ struct GameListView: View {
                             }
                         }
                         .padding()
+                    }
+                }
+                .scrollPosition(id: $scrollPosition, anchor: .top)
+                .onDisappear {
+                    if let scrollPosition {
+                        storedScrollAnchor = scrollPosition
+                    }
+                }
+                .task {
+                    // Restore the last scroll position after the (re)created
+                    // view has laid out its content.
+                    guard !storedScrollAnchor.isEmpty else { return }
+                    try? await Task.sleep(for: .seconds(0.1))
+                    if scrollPosition == nil,
+                       viewModel.sortedLibrary.contains(where: { $0.id == storedScrollAnchor }) {
+                        scrollPosition = storedScrollAnchor
                     }
                 }
                 .searchable(text: $viewModel.searchString,

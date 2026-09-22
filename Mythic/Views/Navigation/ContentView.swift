@@ -14,12 +14,17 @@ import Foundation
 import SwiftUI
 import SemanticVersion
 
+/// Top-level pages of the sidebar. Drives the NavigationSplitView selection.
+enum AppPage: Hashable {
+    case home, library, store, containers, accounts, operations
+}
+
 /// Cross-page navigation coordinator. Lets non-sidebar views (e.g. a library
-/// game card) programmatically push the Store page and hand it a target URL.
+/// game card) programmatically switch pages and hand the Store a target URL.
 final class ViewRouter: ObservableObject {
     static let shared = ViewRouter()
 
-    @Published var isStoreActive = false
+    @Published var selectedPage: AppPage?
     @Published var pendingStoreURL: URL?
 
     /// Atomically take (and clear) a pending store deep link.
@@ -28,10 +33,10 @@ final class ViewRouter: ObservableObject {
         return pendingStoreURL
     }
 
-    /// Point the Store web view at `url` and push the Store page.
+    /// Point the Store web view at `url` and switch to the Store page.
     func openStore(url: URL) {
         pendingStoreURL = url
-        isStoreActive = true
+        selectedPage = .store
     }
 }
 
@@ -50,40 +55,35 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(
             sidebar: {
-                List {
+                // selection-driven navigation: deprecated isActive-based
+                // NavigationLinks proved unreliable when triggered
+                // programmatically on recent macOS releases (they'd land on
+                // the wrong page), and page state needs to survive switches.
+                List(selection: Binding(
+                    get: { router.selectedPage },
+                    set: { router.selectedPage = $0 }
+                )) {
                     Section {
-                        NavigationLink(destination: HomeView()) {
-                            Label("Home", systemImage: "house")
-                                .help("Everything in one place")
-                        }
-
-                        NavigationLink(destination: LibraryView()) {
-                            Label("Library", systemImage: "books.vertical")
-                                .help("View your games")
-                        }
-
-                        NavigationLink(destination: StoreView(), isActive: $router.isStoreActive) {
-                            Label("Store", systemImage: "bag")
-                                .help("Purchase new games from Epic")
-                        }
+                        sidebarItem(.home, "Home", systemImage: "house",
+                                    help: "Everything in one place")
+                        sidebarItem(.library, "Library", systemImage: "books.vertical",
+                                    help: "View your games")
+                        sidebarItem(.store, "Store", systemImage: "bag",
+                                    help: "Purchase new games from Epic")
                     }
-                    
+
                     Section {
-                        NavigationLink(destination: ContainersView()) {
-                            Label("Containers", systemImage: "cube")
-                                .help("Manage containers for Windows® applications")
-                        }
-                        
+                        sidebarItem(.containers, "Containers", systemImage: "cube",
+                                    help: "Manage containers for Windows® applications")
+
                         Button("Support", systemImage: "questionmark.bubble") {
                             SupportWindowController.show()
                         }
                         .help("Get support")
                         .buttonStyle(.plain)
-                        
-                        NavigationLink(destination: AccountsView()) {
-                            Label("Accounts", systemImage: "person.2")
-                                .help("View all currently signed in accounts")
-                        }
+
+                        sidebarItem(.accounts, "Accounts", systemImage: "person.2",
+                                    help: "View all currently signed in accounts")
                     } header: {
                         Text("Management")
                     }
@@ -92,10 +92,8 @@ struct ContentView: View {
                 // separate downloads view from main list because alignment doesn't work within the main list
                 if !operationManager.queue.isEmpty {
                     List { // must wrap in a list to have the same styling as the other links
-                        NavigationLink(destination: OperationsView()) {
-                            Label("Operations", systemImage: "progress.indicator")
-                                .help("View all active game operations")
-                        }
+                        sidebarItem(.operations, "Operations", systemImage: "progress.indicator",
+                                    help: "View all active game operations")
                     }
                     .frame(maxHeight: 40)
                     .scrollDisabled(true)
@@ -135,7 +133,14 @@ struct ContentView: View {
                     EmptyView()
                 }
             }, detail: {
-                HomeView()
+                switch router.selectedPage {
+                case .library: LibraryView()
+                case .store: StoreView()
+                case .containers: ContainersView()
+                case .accounts: AccountsView()
+                case .operations: OperationsView()
+                case .home, .none: HomeView()
+                }
             }
         )
         .toolbar {
@@ -147,6 +152,13 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func sidebarItem(_ page: AppPage, _ title: String, systemImage: String, help: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .help(help)
+            .tag(page)
     }
 
     @ViewBuilder
