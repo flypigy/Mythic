@@ -217,28 +217,36 @@ private struct ScrollViewRestorer: NSViewRepresentable {
             let targetPoint = CGPoint(x: 0, y: target)
 
             restoreTask = Task { @MainActor in
-                // No visible bounce: apply immediately (scroll(to:) is not
-                // animated), then re-apply only while the position hasn't
-                // latched. Abort if the user scrolled past the target.
+                // LazyVGrid instantiates cards in batches as the offset
+                // advances, and each batch regrows the document (layout pulls
+                // the offset back), so a single scroll is not enough — the
+                // multi-frame compensation is what looked like a bounce.
+                // Compact the compensation to ~1ms per iteration so intermediate
+                // frames are imperceptible, and finish only when the offset is
+                // on target AND the document height has stopped growing.
                 var applied = false
+                var lastDocumentHeight: CGFloat = 0
 
-                for _ in 0..<30 {
+                for _ in 0..<400 {
                     guard !Task.isCancelled else { return }
 
                     let current = scrollView.contentView.bounds.origin.y
                     let documentHeight = scrollView.documentView?.frame.height ?? 0
+                    let heightSettled = documentHeight == lastDocumentHeight
 
-                    if abs(current - target) < 2 { return }   // latched
+                    if applied, heightSettled, abs(current - target) < 2 { return } // latched
                     if applied, current > target { return }   // user scrolled past — never fight
+                    lastDocumentHeight = documentHeight
+
                     guard documentHeight >= target else {
-                        try? await Task.sleep(for: .milliseconds(30))
+                        try? await Task.sleep(for: .milliseconds(1))
                         continue
                     }
 
                     scrollView.contentView.scroll(to: targetPoint)
                     scrollView.reflectScrolledClipView(scrollView.contentView)
                     applied = true
-                    try? await Task.sleep(for: .milliseconds(30))
+                    Task.yield()
                 }
             }
         }
