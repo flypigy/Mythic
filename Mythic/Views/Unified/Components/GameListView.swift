@@ -9,6 +9,7 @@
 
 import Foundation
 import OSLog
+import QuartzCore
 import SwiftUI
 
 struct GameListView: View {
@@ -76,6 +77,18 @@ struct GameListView: View {
                     }
                     .preservingScrollOffset()
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    Button {
+                        scrollToTop()
+                    } label: {
+                        Image(systemName: "arrow.up")
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(10)
+                    .background(.regularMaterial, in: .circle)
+                    .padding(24)
+                    .help("Back to top")
+                }
                 .searchable(text: $viewModel.searchString,
                             tokens: $viewModel.searchTokens,
                             suggestedTokens: .constant(viewModel.suggestedTokens),
@@ -98,6 +111,19 @@ struct GameListView: View {
         .animation(.easeInOut, value: layout)
         .animation(.default, value: viewModel.sortedLibrary)
     }
+
+    /// Smoothly scrolls the library list back to the top, driving the backing
+    /// NSScrollView the probe captured.
+    private func scrollToTop() {
+        guard let scrollView = LibraryScrollMemory.scrollView else { return }
+        let top = CGPoint(x: 0, y: -scrollView.contentInsets.top)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            scrollView.contentView.animator().scroll(to: top)
+        }
+    }
 }
 
 /// Persists a ScrollView's content offset (via onScrollGeometryChange) and
@@ -110,6 +136,10 @@ struct GameListView: View {
 /// always starts at the top).
 enum LibraryScrollMemory {
     static var offset: CGFloat?
+
+    /// The backing scroll view, held by the probe so the back-to-top button
+    /// (SwiftUI layer) can drive it directly.
+    static weak var scrollView: NSScrollView?
 }
 
 /// Places the NSScrollView memory probe. Attach to content INSIDE the scroll
@@ -169,6 +199,8 @@ private struct ScrollViewRestorer: NSViewRepresentable {
         private let log = Logger.custom(category: "ScrollRestore")
 
         func attach(to scrollView: NSScrollView) {
+            LibraryScrollMemory.scrollView = scrollView
+
             // Save on every scroll (user or programmatic) — same space as the
             // restore, so no conversion, no drift.
             boundsObserver = NotificationCenter.default.addObserver(
