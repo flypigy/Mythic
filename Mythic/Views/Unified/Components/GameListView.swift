@@ -125,9 +125,16 @@ private struct ScrollOffsetPersistence: ViewModifier {
 /// Saves the scroll offset. Must be attached to the ScrollView itself — an
 /// observer placed inside the (lazy) scroll content never fired (verified by
 /// the absence of any save log lines during user scrolling).
+///
+/// The observer only tracks the latest offset in memory; persistence happens
+/// once, on disappear. Writing to storage directly from the observer caused a
+/// clobbering race: on view recreation the ScrollView briefly sits at 0, the
+/// observer fires with 0 and overwrote the user's real position, so the next
+/// restore went to the top.
 @available(macOS 15.0, *)
 private struct ScrollOffsetSaver: ViewModifier {
     @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
+    @State private var latestOffset: CGFloat = 0
     private let log = Logger.custom(category: "ScrollRestore")
 
     func body(content: Content) -> some View {
@@ -135,11 +142,14 @@ private struct ScrollOffsetSaver: ViewModifier {
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top
             } action: { _, newOffset in
-                // Throttle: geometry ticks fire continuously while scrolling.
-                if abs(newOffset - storedScrollOffset) > 2 {
-                    log.notice("scroll: save \(newOffset, privacy: .public) (was \(storedScrollOffset, privacy: .public))")
-                    storedScrollOffset = newOffset
-                }
+                latestOffset = newOffset
+            }
+            .onDisappear {
+                // Skip the recreation instant (offset 0 before the restore
+                // latches) so a quick page dip doesn't reset the saved spot.
+                guard latestOffset > 1 else { return }
+                log.notice("scroll: save \(latestOffset, privacy: .public) (was \(storedScrollOffset, privacy: .public))")
+                storedScrollOffset = Double(latestOffset)
             }
     }
 }
