@@ -246,7 +246,7 @@ private struct ScrollViewRestorer: NSViewRepresentable {
                     scrollView.contentView.scroll(to: targetPoint)
                     scrollView.reflectScrolledClipView(scrollView.contentView)
                     applied = true
-                    Task.yield()
+                    try? await Task.sleep(for: .milliseconds(1))
                 }
             }
         }
