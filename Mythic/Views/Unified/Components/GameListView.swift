@@ -134,7 +134,10 @@ private struct ScrollOffsetPersistence: ViewModifier {
 @available(macOS 15.0, *)
 private struct ScrollOffsetSaver: ViewModifier {
     @AppStorage("gameListScrollOffset") private var storedScrollOffset: Double = 0
-    @State private var latestOffset: CGFloat = 0
+    /// -1 = no trustworthy emission yet (only the creation instant, whose
+    /// pre-restore offset of 0 must not clobber the stored position).
+    @State private var latestOffset: CGFloat = -1
+    @State private var hasIgnoredCreationEmission = false
     private let log = Logger.custom(category: "ScrollRestore")
 
     func body(content: Content) -> some View {
@@ -142,12 +145,18 @@ private struct ScrollOffsetSaver: ViewModifier {
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y + geometry.contentInsets.top
             } action: { _, newOffset in
+                // The first emission after (re)creation is the pre-restore
+                // offset (0) — ignore its value; every later emission (the
+                // restore latching, or the user scrolling, including back to
+                // the very top) reflects a real position.
+                guard hasIgnoredCreationEmission else {
+                    hasIgnoredCreationEmission = true
+                    return
+                }
                 latestOffset = newOffset
             }
             .onDisappear {
-                // Skip the recreation instant (offset 0 before the restore
-                // latches) so a quick page dip doesn't reset the saved spot.
-                guard latestOffset > 1 else { return }
+                guard latestOffset >= 0 else { return }
                 log.notice("scroll: save \(latestOffset, privacy: .public) (was \(storedScrollOffset, privacy: .public))")
                 storedScrollOffset = Double(latestOffset)
             }
