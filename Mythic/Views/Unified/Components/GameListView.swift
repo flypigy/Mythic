@@ -217,32 +217,28 @@ private struct ScrollViewRestorer: NSViewRepresentable {
             let targetPoint = CGPoint(x: 0, y: target)
 
             restoreTask = Task { @MainActor in
-                // Give the (re)created scroll view a beat to lay out.
-                try? await Task.sleep(for: .milliseconds(150))
+                // No visible bounce: apply immediately (scroll(to:) is not
+                // animated), then re-apply only while the position hasn't
+                // latched. Abort if the user scrolled past the target.
+                var applied = false
 
-                // Tracks what WE last applied, to distinguish SwiftUI resets
-                // (back to the initial offset → retry) from the user scrolling
-                // (→ abort, never fight).
-                var lastApplied: CGFloat?
-
-                for _ in 0..<20 {
+                for _ in 0..<30 {
                     guard !Task.isCancelled else { return }
 
                     let current = scrollView.contentView.bounds.origin.y
                     let documentHeight = scrollView.documentView?.frame.height ?? 0
-                    log.notice("restore: target=\(target, privacy: .public) current=\(current, privacy: .public) docHeight=\(documentHeight, privacy: .public)")
 
-                    if abs(current - target) < 6 { return }                      // latched
-                    if let lastApplied, abs(current - lastApplied) > 6 { return } // user moved it
-                    guard documentHeight >= target + scrollView.contentView.bounds.height else {
-                        try? await Task.sleep(for: .milliseconds(100))
+                    if abs(current - target) < 2 { return }   // latched
+                    if applied, current > target { return }   // user scrolled past — never fight
+                    guard documentHeight >= target else {
+                        try? await Task.sleep(for: .milliseconds(30))
                         continue
                     }
 
                     scrollView.contentView.scroll(to: targetPoint)
                     scrollView.reflectScrolledClipView(scrollView.contentView)
-                    lastApplied = target
-                    try? await Task.sleep(for: .milliseconds(100))
+                    applied = true
+                    try? await Task.sleep(for: .milliseconds(30))
                 }
             }
         }
