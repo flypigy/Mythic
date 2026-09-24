@@ -21,6 +21,10 @@ struct GameListView: View {
     
     @State private var isGameImportViewPresented: Bool = false
 
+    /// Whether the first card row has scrolled out of view (drives the
+    /// back-to-top button's visibility).
+    @State private var showBackToTop = false
+
     var body: some View {
         VStack {
             if gameDataStore.library.isEmpty {
@@ -75,19 +79,35 @@ struct GameListView: View {
                             .padding()
                         }
                     }
-                    .preservingScrollOffset()
+                    .preservingScrollOffset(onOffsetChange: { offset in
+                        // Appear once the first card row has scrolled out of
+                        // view (card ≈ gameCardSize tall, 3:4, plus chrome).
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showBackToTop = offset > gameCardSize * 1.5
+                        }
+                    })
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    Button {
-                        scrollToTop()
-                    } label: {
-                        Image(systemName: "arrow.up")
+                    if showBackToTop {
+                        Button {
+                            scrollToTop()
+                        } label: {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 15, weight: .medium))
+                                .frame(width: 46, height: 46)
+                        }
+                        .buttonStyle(.plain)
+                        .background {
+                            if #available(macOS 26.0, *) {
+                                // Match the toolbar buttons' material.
+                                Circle().fill(.clear).glassEffect(in: .circle)
+                            } else {
+                                Circle().fill(.regularMaterial)
+                            }
+                        }
+                        .padding(20)
+                        .help("Back to top")
                     }
-                    .buttonStyle(.borderless)
-                    .padding(10)
-                    .background(.regularMaterial, in: .circle)
-                    .padding(24)
-                    .help("Back to top")
                 }
                 .searchable(text: $viewModel.searchString,
                             tokens: $viewModel.searchTokens,
@@ -122,6 +142,10 @@ struct GameListView: View {
             context.duration = 0.3
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             scrollView.contentView.animator().scroll(to: top)
+        } completionHandler: {
+            // The clip-view bounds notification fires during the animation and
+            // updates this via onOffsetChange; force-hide for good measure.
+            withAnimation(.easeInOut(duration: 0.15)) { showBackToTop = false }
         }
     }
 }
@@ -149,10 +173,12 @@ enum LibraryScrollMemory {
 /// coordinate space; mixing SwiftUI geometry (which adds content insets) with
 /// clip-view coordinates drifted the position by one inset per round trip.
 private struct ScrollOffsetPersistence: ViewModifier {
+    var onOffsetChange: ((CGFloat) -> Void)?
+
     func body(content: Content) -> some View {
         content
             .background(
-                ScrollViewRestorer()
+                ScrollViewRestorer(onOffsetChange: onOffsetChange)
                     .frame(width: 0, height: 0)
             )
     }
@@ -160,10 +186,12 @@ private struct ScrollOffsetPersistence: ViewModifier {
 
 /// Observes and restores the enclosing NSScrollView's offset.
 private struct ScrollViewRestorer: NSViewRepresentable {
+    var onOffsetChange: ((CGFloat) -> Void)?
+
     func makeNSView(context: Context) -> ProbeView {
         let view = ProbeView()
         view.attachHandler = { scrollView in
-            context.coordinator.attach(to: scrollView)
+            context.coordinator.attach(to: scrollView, onOffsetChange: onOffsetChange)
         }
         return view
     }
@@ -198,7 +226,7 @@ private struct ScrollViewRestorer: NSViewRepresentable {
         private var boundsObserver: NSObjectProtocol?
         private let log = Logger.custom(category: "ScrollRestore")
 
-        func attach(to scrollView: NSScrollView) {
+        func attach(to scrollView: NSScrollView, onOffsetChange: ((CGFloat) -> Void)?) {
             LibraryScrollMemory.scrollView = scrollView
 
             // Save on every scroll (user or programmatic) — same space as the
@@ -207,8 +235,11 @@ private struct ScrollViewRestorer: NSViewRepresentable {
                 forName: NSClipView.boundsDidChangeNotification,
                 object: scrollView.contentView,
                 queue: .main
-            ) { _ in
-                LibraryScrollMemory.offset = scrollView.contentView.bounds.origin.y
+            ) { [weak scrollView] _ in
+                guard let scrollView else { return }
+                let offset = scrollView.contentView.bounds.origin.y
+                LibraryScrollMemory.offset = offset
+                onOffsetChange?(offset)
             }
 
             // Restore the in-session position (nil on a fresh launch → top).
