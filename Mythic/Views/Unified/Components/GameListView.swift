@@ -293,8 +293,10 @@ private struct ScrollViewRestorer: NSViewRepresentable {
 private extension View {
     /// Session-scoped scroll-position memory; attach to content INSIDE the
     /// scroll view.
-    func preservingScrollOffset() -> some View {
-        modifier(ScrollOffsetPersistence())
+    /// - Parameter onOffsetChange: called on the main queue as the list
+    ///   scrolls, with the content offset (drives the back-to-top button).
+    func preservingScrollOffset(onOffsetChange: ((CGFloat) -> Void)? = nil) -> some View {
+        modifier(ScrollOffsetPersistence(onOffsetChange: onOffsetChange))
     }
 }
 
