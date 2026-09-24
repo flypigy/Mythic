@@ -92,11 +92,16 @@ struct GameListView: View {
                         Button {
                             scrollToTop()
                         } label: {
+                            // The frame lives on the Button (not just the
+                            // label image) so the whole 46pt circle is the
+                            // hit region, not merely the glyph.
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 15, weight: .medium))
                                 .frame(width: 46, height: 46)
+                                .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
+                        .frame(width: 46, height: 46)
                         .background {
                             if #available(macOS 26.0, *) {
                                 // Match the toolbar buttons' material.
@@ -105,6 +110,7 @@ struct GameListView: View {
                                 Circle().fill(.regularMaterial)
                             }
                         }
+                        .contentShape(Circle())
                         .padding(20)
                         .help("Back to top")
                     }
